@@ -31,3 +31,8 @@
 .tower-collapsed { display: inline-flex; align-items: flex-start; gap: 2px; letter-spacing: -.05em; }
 .tower-collapsed > sup:first-of-type { margin-top: -.2em; color: #64756f; font-size: .58em; }
 .tower-collapsed > sup:last-of-type { margin-top: -.5em; color: #253a3a; font-size: .62em; max-width: 18ch; overflow: hidden; text-overflow: ellipsis; }
+.calculation-stage { overflow: visible; }
+.result-line { min-height: 54px; overflow: visible; }
+.number-result:has(.tower-collapsed), .history-result:has(.tower-collapsed) { overflow: visible; }
+.number-result:has(.tower-collapsed) { line-height: 1.45; padding-block: .35em; }
+.history-result:has(.tower-collapsed) { line-height: 1.35; padding-block: .25em; }
