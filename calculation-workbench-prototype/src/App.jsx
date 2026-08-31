@@ -43,6 +43,7 @@ export function App() {
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const expressionRef = useRef(null);
+  const memoryFeedbackTimer = useRef(null);
   useEffect(() => {
     try {
       window.localStorage.setItem(storageKey, JSON.stringify({
@@ -81,14 +82,19 @@ export function App() {
   }
 
   function addToMemory() {
-    if (!expression.trim() || expressionError) { setToast("Enter a valid expression before M+"); return; }
+    const showMemoryFeedback = (message) => {
+      setToast(message);
+      clearTimeout(memoryFeedbackTimer.current);
+      memoryFeedbackTimer.current = setTimeout(() => setToast(""), 1800);
+    };
+    if (!expression.trim()) { showMemoryFeedback("Nothing to add to memory"); return; }
+    if (expressionError) { showMemoryFeedback("Fix expression before adding to memory"); return; }
     try {
       const nextExpression = memory?.expression ? `(${memory.expression}) + (${expression})` : expression;
       const nextValue = evaluateAutomatically(nextExpression, referenceValues, { precision });
       setMemory({ expression: nextExpression, value: nextValue });
-      setToast("Added to memory");
-      setTimeout(() => setToast(""), 1200);
-    } catch { setToast("Memory could not be updated"); }
+      showMemoryFeedback("Added to memory");
+    } catch { showMemoryFeedback("Memory could not be updated"); }
   }
 
   function appendKey(key) {
