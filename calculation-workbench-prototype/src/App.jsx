@@ -30,10 +30,10 @@ function readStoredWorkspace() {
 export function App() {
   const [storedWorkspace] = useState(readStoredWorkspace);
   const [expression, setExpression] = useState(() => storedWorkspace?.expression ?? "√(2) + π / 7");
-  const [base, setBase] = useState(() => storedWorkspace?.base ?? 10);
-  const [precision, setPrecision] = useState(() => storedWorkspace?.precision ?? 48);
-  const [notation, setNotation] = useState(() => storedWorkspace?.notation ?? "auto");
-  const [activeMode, setActiveMode] = useState(() => storedWorkspace?.activeMode ?? "Calculator");
+  const [base, setBase] = useState(() => storedWorkspace?.view?.base ?? storedWorkspace?.base ?? 10);
+  const [precision, setPrecision] = useState(() => storedWorkspace?.view?.precision ?? storedWorkspace?.precision ?? 48);
+  const [notation, setNotation] = useState(() => storedWorkspace?.view?.notation ?? storedWorkspace?.notation ?? "auto");
+  const [activeMode, setActiveMode] = useState(() => storedWorkspace?.view?.activeMode ?? storedWorkspace?.activeMode ?? "Calculator");
   const [history, setHistory] = useState(() => storedWorkspace?.history?.map((item) => ({ ...item, value: deserializeValue(item.value) })) ?? initialHistory);
   const [nextId, setNextId] = useState(() => storedWorkspace?.nextId ?? 4);
   const [memory, setMemory] = useState(() => storedWorkspace?.memory ? { ...storedWorkspace.memory, value: deserializeValue(storedWorkspace.memory.value) } : null);
@@ -46,7 +46,8 @@ export function App() {
   useEffect(() => {
     try {
       window.localStorage.setItem(storageKey, JSON.stringify({
-        expression, base, precision, notation, activeMode, nextId,
+        expression, nextId,
+        view: { base, precision, notation, activeMode },
         previewValue: serializeValue(previewValue),
         history: history.map((item) => ({ ...item, value: serializeValue(item.value) })),
         memory: memory ? { ...memory, value: serializeValue(memory.value) } : null,

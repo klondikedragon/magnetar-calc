@@ -29,3 +29,4 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Decimal.js evaluates integer tetration when the result remains finite within its configured exponent range; overflow automatically falls through to BreakEternity.
 - Deep tower output uses a single superscript cluster for the layer marker and terminal magnitude to avoid multi-level clipping in Active Result and History.
 - Persist the workbench in browser local storage (expression, History, memory, display settings, and active preview). Seed samples only when no prior workspace state exists.
+- Store all view preferences together under the persisted `view` state; `^^` is an ASCII alias for tetration alongside Unicode `↑↑`.

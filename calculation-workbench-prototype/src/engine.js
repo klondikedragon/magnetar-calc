@@ -47,7 +47,7 @@ export const placeholderEngine = {
   convertBase(value, base) { return this.format(value, { base }); },
 };
 
-const tokenPattern = /\s*(\d+(?:\.\d*)?(?:e[+-]?\d+)?|@history\(\d+\)|[A-Za-z]+|↑+|[()+\-*/^%!×÷−πτ√])/gy;
+const tokenPattern = /\s*(\d+(?:\.\d*)?(?:e[+-]?\d+)?|@history\(\d+\)|[A-Za-z]+|↑+|\^+|[()+\-*/%!×÷−πτ√])/gy;
 
 function tokenize(source) {
   const tokens = [];
@@ -128,14 +128,14 @@ function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, 
     return valueFor(token);
   };
   const unary = () => { if (peek() === "−" || peek() === "-") { take(); return unary().neg(); } if (peek() === "+") { take(); return unary(); } if (peek() === "√") { take(); return unary().sqrt(); } let result = primary(); while (peek() === "!") { take(); result = factorialValue(result, Ctor); } return result; };
-  const power = () => { const left = unary(); if (peek() === "^" || peek() === "↑") { take(); return left.pow(power()); } if (typeof peek() === "string" && /^↑{2,}$/.test(peek())) { const arrows = take(); const height = power(); if (arrows.length === 2) return typeof left.tetrate === "function" ? left.tetrate(height.toNumber()) : tetrateDecimal(left, height, Ctor); throw new Error("hyper-operation not available in this backend"); } return left; };
+  const power = () => { const left = unary(); if (peek() === "^" || peek() === "↑") { take(); return left.pow(power()); } if (typeof peek() === "string" && /^(?:↑{2,}|\^{2,})$/.test(peek())) { const arrows = take(); const height = power(); if (arrows.length === 2) return typeof left.tetrate === "function" ? left.tetrate(height.toNumber()) : tetrateDecimal(left, height, Ctor); throw new Error("hyper-operation not available in this backend"); } return left; };
   const mulDiv = () => { let result = power(); while (["*", "×", "/", "÷", "%", "mod"].includes(peek())) { const op = take(); const right = power(); result = op === "/" || op === "÷" ? result.div(right) : op === "%" || op === "mod" ? result.mod(right) : result.mul(right); } return result; };
   function addSub() { let result = mulDiv(); while (["+", "−", "-"].includes(peek())) { const op = take(); const right = mulDiv(); result = op === "+" ? result.add(right) : result.sub(right); } return result; }
   let result = addSub();
   if (position !== tokens.length) throw new Error("unexpected token");
   if (typeof result.isFinite === "function" && !result.isFinite()) throw new Error("engine range exceeded");
-  const knuthMatch = expression.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*(↑{2,})\s*([0-9]+(?:\.[0-9]+)?)\s*$/);
-  return { kind, decimal: result, full: result.toString(), knuth: knuthMatch ? { base: knuthMatch[1], arrows: knuthMatch[2], height: knuthMatch[3] } : null };
+  const knuthMatch = expression.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*(↑{2,}|\^{2,})\s*([0-9]+(?:\.[0-9]+)?)\s*$/);
+  return { kind, decimal: result, full: result.toString(), knuth: knuthMatch ? { base: knuthMatch[1], arrows: knuthMatch[2].replaceAll("^", "↑"), height: knuthMatch[3] } : null };
 }
 
 function scientificParts(magnitude, precision, engineering = false) {
