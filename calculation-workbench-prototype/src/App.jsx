@@ -97,7 +97,7 @@ export function App() {
   const renderResultContent = (formatted) => formatted.knuth
     ? <><span className="sign">{formatted.sign}</span><span className="knuth-output">{formatted.knuthBase} {formatted.knuthArrows}<sup>{formatted.knuthHeight}</sup></span></>
     : formatted.tower
-    ? <><span className="sign">{formatted.sign}</span>{formatted.towerExpanded ? <span className="tower-expanded">{formatted.significand}</span> : <span className="tower-collapsed"><span>10</span><sup>⟦{formatted.towerDepth}⟧</sup><sup>{formatted.towerMagnitude}</sup></span>}</>
+    ? <><span className="sign">{formatted.sign}</span>{formatted.towerExpanded ? <span className="tower-expanded">{formatted.significand}</span> : <span className="tower-collapsed"><span>10</span><sup>⟦{formatted.towerDepth}⟧ {formatted.towerMagnitude}</sup></span>}</>
     : <><span className="sign">{formatted.sign}</span><span>{formatted.significand}</span>{formatted.exponent && <span className="result-exponent">× {base === 10 ? "10" : base}<sup>{formatted.exponent}</sup></span>}</>;
   function recallMemory() { if (memory?.expression) { updatePreview(`${expression}${expression ? " " : ""}(${memory.expression})`); requestAnimationFrame(() => expressionRef.current?.focus()); setMemoryOpen(false); } }
   return <main className="app-shell">

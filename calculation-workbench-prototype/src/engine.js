@@ -86,6 +86,16 @@ function engineConstant(name, Ctor) {
   throw new Error("unknown constant");
 }
 
+function tetrateDecimal(base, height, Ctor) {
+  if (!height.isInteger() || height.isNegative() || height.gt(100)) throw new Error("tetration height must be a non-negative integer <= 100");
+  let result = new Ctor(1);
+  for (let index = 0; index < height.toNumber(); index += 1) {
+    result = base.pow(result);
+    if (!result.isFinite()) throw new Error("engine range exceeded");
+  }
+  return result;
+}
+
 function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, kind = "break-eternity") {
   const tokens = tokenize(expression);
   let position = 0;
@@ -118,7 +128,7 @@ function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, 
     return valueFor(token);
   };
   const unary = () => { if (peek() === "−" || peek() === "-") { take(); return unary().neg(); } if (peek() === "+") { take(); return unary(); } if (peek() === "√") { take(); return unary().sqrt(); } let result = primary(); while (peek() === "!") { take(); result = factorialValue(result, Ctor); } return result; };
-  const power = () => { const left = unary(); if (peek() === "^" || peek() === "↑") { take(); return left.pow(power()); } if (typeof peek() === "string" && /^↑{2,}$/.test(peek())) { const arrows = take(); const height = power(); if (arrows.length === 2 && typeof left.tetrate === "function") return left.tetrate(height.toNumber()); throw new Error("hyper-operation not available in this backend"); } return left; };
+  const power = () => { const left = unary(); if (peek() === "^" || peek() === "↑") { take(); return left.pow(power()); } if (typeof peek() === "string" && /^↑{2,}$/.test(peek())) { const arrows = take(); const height = power(); if (arrows.length === 2) return typeof left.tetrate === "function" ? left.tetrate(height.toNumber()) : tetrateDecimal(left, height, Ctor); throw new Error("hyper-operation not available in this backend"); } return left; };
   const mulDiv = () => { let result = power(); while (["*", "×", "/", "÷", "%", "mod"].includes(peek())) { const op = take(); const right = power(); result = op === "/" || op === "÷" ? result.div(right) : op === "%" || op === "mod" ? result.mod(right) : result.mul(right); } return result; };
   function addSub() { let result = mulDiv(); while (["+", "−", "-"].includes(peek())) { const op = take(); const right = mulDiv(); result = op === "+" ? result.add(right) : result.sub(right); } return result; }
   let result = addSub();
@@ -247,7 +257,7 @@ export const decimalEngine = {
 };
 
 function looksBeyondDecimal(expression) {
-  return /↑{2,}|\^\^|\b(?:tetr|iteratedexp|iteratedlog|slog|pent)\b/i.test(expression) || /(?:\^|e)\s*[+-]?\d{16,}/i.test(expression);
+  return /↑{3,}|\^\^\^|\b(?:iteratedexp|iteratedlog|slog|pent)\b/i.test(expression) || /(?:\^|e)\s*[+-]?\d{16,}/i.test(expression);
 }
 
 export const engineRegistry = [decimalEngine, breakEternityEngine];

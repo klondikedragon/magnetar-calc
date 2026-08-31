@@ -36,3 +36,5 @@
 .number-result:has(.tower-collapsed), .history-result:has(.tower-collapsed) { overflow: visible; }
 .number-result:has(.tower-collapsed) { line-height: 1.45; padding-block: .35em; }
 .history-result:has(.tower-collapsed) { line-height: 1.35; padding-block: .25em; }
+.tower-collapsed > sup { margin-top: -.35em; color: #253a3a; font-size: .62em; line-height: 1.05; max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.number-result:has(.tower-collapsed), .history-result:has(.tower-collapsed) { overflow: visible; }
