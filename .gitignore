@@ -1,0 +1,15 @@
+# Node/Vite dependencies and generated output
+calculation-workbench-prototype/node_modules/
+calculation-workbench-prototype/dist/
+calculation-workbench-prototype/.npm-cache/
+calculation-workbench-prototype/coverage/
+
+# Local logs and editor/system files
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Keep the Sites hosting manifest tracked; ignore only transient local state.
+calculation-workbench-prototype/.openai/*.tmp
