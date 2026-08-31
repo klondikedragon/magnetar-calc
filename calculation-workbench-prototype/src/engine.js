@@ -194,7 +194,7 @@ function formatBreak(value, base = 10, precision = 48, notation = "scientific") 
   let expanded = magnitude;
   for (let index = 0; index < arrowCount; index += 1) expanded = `10^(${expanded})`;
   const collapsed = `10⟦${arrowCount}⟧ᵐ`;
-  return { sign, significand: dense ? collapsed : expanded, exponent: "", tower: true, towerDepth: arrowCount, towerMagnitude: magnitude, towerExpanded: !dense && arrowCount <= 3, arrowCount, denseArrowCount: dense ? arrowCount : null, layer: arrowCount, magnitude, precisionLost: true, text: `${sign}${dense ? collapsed : expanded}`, full };
+  return { sign, significand: dense ? collapsed : expanded, exponent: `layer ${arrowCount}`, tower: true, towerDepth: arrowCount, towerMagnitude: magnitude, towerExpanded: !dense && arrowCount <= 3, arrowCount, denseArrowCount: dense ? arrowCount : null, layer: arrowCount, magnitude, precisionLost: true, text: `${sign}${dense ? collapsed : expanded}`, full };
 }
 
 export const breakEternityEngine = {
