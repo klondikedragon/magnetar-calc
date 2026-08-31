@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { evaluateAutomatically, formatAutomatically, inspectAutomatically } from "./engine";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { deserializeValue, evaluateAutomatically, formatAutomatically, inspectAutomatically, serializeValue } from "./engine";
 
 const initialHistory = [
   { id: 3, expression: "√(2) + π / 7", value: { kind: "number", number: 1.862012077376797, full: "1.862012077376796985004668721836731291106586140266324758279159345760390983" } },
@@ -18,22 +18,41 @@ const keys = [
   ["1", "2", "3", ".", "0", "="],
 ];
 const numberTheoryKeys = keys.map((row, index) => index === 3 ? ["π", "e", "τ", "↑", "↑↑", "mod"] : row);
+const storageKey = "elephant-calc/workbench/v1";
+
+function readStoredWorkspace() {
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
 
 export function App() {
-  const [expression, setExpression] = useState("√(2) + π / 7");
-  const [base, setBase] = useState(10);
-  const [precision, setPrecision] = useState(48);
-  const [notation, setNotation] = useState("auto");
-  const [activeMode, setActiveMode] = useState("Calculator");
-  const [history, setHistory] = useState(initialHistory);
-  const [nextId, setNextId] = useState(4);
-  const [memory, setMemory] = useState(null);
-  const [previewValue, setPreviewValue] = useState(initialHistory[0].value);
+  const [storedWorkspace] = useState(readStoredWorkspace);
+  const [expression, setExpression] = useState(() => storedWorkspace?.expression ?? "√(2) + π / 7");
+  const [base, setBase] = useState(() => storedWorkspace?.base ?? 10);
+  const [precision, setPrecision] = useState(() => storedWorkspace?.precision ?? 48);
+  const [notation, setNotation] = useState(() => storedWorkspace?.notation ?? "auto");
+  const [activeMode, setActiveMode] = useState(() => storedWorkspace?.activeMode ?? "Calculator");
+  const [history, setHistory] = useState(() => storedWorkspace?.history?.map((item) => ({ ...item, value: deserializeValue(item.value) })) ?? initialHistory);
+  const [nextId, setNextId] = useState(() => storedWorkspace?.nextId ?? 4);
+  const [memory, setMemory] = useState(() => storedWorkspace?.memory ? { ...storedWorkspace.memory, value: deserializeValue(storedWorkspace.memory.value) } : null);
+  const [previewValue, setPreviewValue] = useState(() => deserializeValue(storedWorkspace?.previewValue) ?? initialHistory[0].value);
   const [toast, setToast] = useState("");
   const [expressionError, setExpressionError] = useState("");
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const expressionRef = useRef(null);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify({
+        expression, base, precision, notation, activeMode, nextId,
+        previewValue: serializeValue(previewValue),
+        history: history.map((item) => ({ ...item, value: serializeValue(item.value) })),
+        memory: memory ? { ...memory, value: serializeValue(memory.value) } : null,
+      }));
+    } catch { /* Storage is optional; the calculator remains usable without it. */ }
+  }, [expression, base, precision, notation, activeMode, nextId, previewValue, history, memory]);
   const precisionLabel = useMemo(() => precision >= 1000 ? "1,000" : precision, [precision]);
   const paletteKeys = activeMode === "Number theory" ? numberTheoryKeys : keys;
   const preview = formatAutomatically(previewValue, { base, precision, notation });

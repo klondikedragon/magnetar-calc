@@ -26,3 +26,6 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Memory is an accumulated expression sequence: M+ appends and evaluates the current expression, MR recalls the full parenthesized expression, and the memory chip opens a detail overlay.
 - Layered values expose arrow count, dense generalized arrow notation above 20 arrows, and an explicit magnitude-only precision state.
 - Number Theory mode exposes `↑` (exponentiation) and `↑↑` (tetration); explicit Knuth-arrow provenance is preserved separately from BreakEternity layer depth.
+- Decimal.js evaluates integer tetration when the result remains finite within its configured exponent range; overflow automatically falls through to BreakEternity.
+- Deep tower output uses a single superscript cluster for the layer marker and terminal magnitude to avoid multi-level clipping in Active Result and History.
+- Persist the workbench in browser local storage (expression, History, memory, display settings, and active preview). Seed samples only when no prior workspace state exists.

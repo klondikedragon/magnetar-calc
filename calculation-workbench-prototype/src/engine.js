@@ -285,3 +285,20 @@ export function inspectAutomatically(value, options = {}) {
   if (value.kind === "break-eternity") return { ...breakEternityEngine.inspect(value, options), engine: value.engineLabel ?? "break_eternity.js" };
   return placeholderEngine.inspect(value, options);
 }
+
+// Browser storage holds plain JSON, so preserve the engine value as a string and
+// rebuild the appropriate numeric object when a calculator session is restored.
+export function serializeValue(value) {
+  if (!value) return null;
+  if (value.kind === "decimal.js" || value.kind === "break-eternity") {
+    return { ...value, decimal: value.decimal?.toString?.() ?? value.full };
+  }
+  return value;
+}
+
+export function deserializeValue(value) {
+  if (!value) return null;
+  if (value.kind === "decimal.js") return { ...value, decimal: new Decimal(value.decimal) };
+  if (value.kind === "break-eternity") return { ...value, decimal: new BreakDecimal(value.decimal) };
+  return value;
+}
