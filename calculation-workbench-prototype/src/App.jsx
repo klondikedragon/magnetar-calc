@@ -100,11 +100,26 @@ export function App() {
   function appendKey(key) {
     if (key === "=") return commit();
     if (key === "AC") { setExpression(""); setToast(""); return; }
-    if (key === "⌫") return updatePreview(expression.slice(0, -1));
+    if (key === "⌫") { const start = expressionRef.current?.selectionStart ?? expression.length; const end = expressionRef.current?.selectionEnd ?? start; return updatePreview(start !== end ? `${expression.slice(0, start)}${expression.slice(end)}` : `${expression.slice(0, Math.max(0, start - 1))}${expression.slice(end)}`); }
     if (key === "Ans") return updatePreview(`${expression}@history(${history[0]?.id ?? 1})`);
     if (key === "M+") return addToMemory();
-    const insert = { "x²": "^2", "xʸ": "^", "√x": "√(", "ⁿ√x": "^(1/", "10ˣ": "10^", "eˣ": "e^", "!": "!", sin: "sin(", cos: "cos(", tan: "tan(", ln: "ln(", log: "log(", abs: "abs(" }[key] ?? key;
-    updatePreview(`${expression}${insert}`);
+    const input = expressionRef.current;
+    const start = input?.selectionStart ?? expression.length;
+    const end = input?.selectionEnd ?? start;
+    const selected = expression.slice(start, end);
+    const replaceSelection = (insert, caret = insert.length) => {
+      const next = `${expression.slice(0, start)}${insert}${expression.slice(end)}`;
+      updatePreview(next);
+      requestAnimationFrame(() => { input?.focus(); input?.setSelectionRange(start + caret, start + caret); });
+    };
+    if (key === "(") return replaceSelection(selected ? `(${selected})` : "()", selected ? selected.length + 2 : 1);
+    if (key === ")") return replaceSelection(")");
+    const unary = { "√x": "√", sin: "sin", cos: "cos", tan: "tan", ln: "ln", log: "log", abs: "abs" }[key];
+    if (unary) return replaceSelection(`${unary}(${selected})`, unary.length + 1 + selected.length);
+    if (key === "x²") return replaceSelection(selected ? `(${selected})^2` : "^2", selected ? selected.length + 4 : 2);
+    if (key === "!") return replaceSelection(selected ? `(${selected})!` : "!", selected ? selected.length + 3 : 1);
+    const insert = { "xʸ": "^", "ⁿ√x": "^(1/", "10ˣ": "10^", "eˣ": "e^" }[key] ?? key;
+    replaceSelection(insert);
   }
 
   async function copyFull(full) {

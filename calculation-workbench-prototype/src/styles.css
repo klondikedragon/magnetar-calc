@@ -38,6 +38,9 @@
 .tower-collapsed { align-items: baseline; padding-block: .35em; overflow: visible; }
 .tower-collapsed > sup { align-self: flex-start; margin-top: -.25em; max-width: none; overflow: visible; text-overflow: clip; }
 .tower-collapsed > sup:last-of-type { max-width: none; overflow: visible; text-overflow: clip; }
+.memory-strip { min-width: 0; flex-wrap: nowrap; }
+.memory-strip > button:not(.memory-chip) { flex: 0 0 auto; }
+.memory-chip { flex: 0 1 145px; min-width: 0; max-width: 145px; }
 .number-result:has(.tower-collapsed) { line-height: 1.45; padding-block: .35em; }
 .history-result:has(.tower-collapsed) { line-height: 1.35; padding-block: .25em; }
 .tower-collapsed > sup { margin-top: -.35em; color: #253a3a; font-size: .62em; line-height: 1.05; max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
