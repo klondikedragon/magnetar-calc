@@ -19,6 +19,11 @@ const keys = [
 ];
 const numberTheoryKeys = keys.map((row, index) => index === 3 ? ["π", "e", "τ", "↑", "↑↑", "mod"] : row);
 const storageKey = "elephant-calc/workbench/v1";
+const keyLabels = { AC: "Clear expression", "⌫": "Backspace", Ans: "Insert most recent History result", "=": "Calculate and save to History", "x²": "Square", "xʸ": "Raise to a power", "√x": "Square root", "ⁿ√x": "Nth root", "10ˣ": "Ten to a power", "eˣ": "Euler's number to a power", "π": "Insert pi", "τ": "Insert tau", "↑": "Insert Knuth up arrow", "↑↑": "Insert Knuth double up arrow", "−": "Subtract", "×": "Multiply", "÷": "Divide" };
+
+function isEditableElement(target) {
+  return target instanceof HTMLElement && (target.matches("textarea, input, select, [contenteditable='true']") || target.isContentEditable);
+}
 
 function readStoredWorkspace() {
   try {
@@ -45,6 +50,9 @@ export function App() {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const expressionRef = useRef(null);
   const memoryFeedbackTimer = useRef(null);
+  const memoryDialogRef = useRef(null);
+  const memoryCloseRef = useRef(null);
+  const priorFocusRef = useRef(null);
   const focusExpression = () => requestAnimationFrame(() => expressionRef.current?.focus());
   useEffect(() => {
     const strip = document.querySelector(".memory-strip");
@@ -139,6 +147,63 @@ export function App() {
     replaceSelection(insert);
   }
 
+  function selectableContainer(target) {
+    if (target instanceof Element) return target.closest(".selectable-output, .selectable-text");
+    const anchorParent = window.getSelection()?.anchorNode?.parentElement;
+    return anchorParent?.closest(".selectable-output, .selectable-text") ?? null;
+  }
+
+  function hasTextSelection() { return Boolean(window.getSelection?.()?.toString()); }
+
+  function selectContainerText(element) {
+    const selection = window.getSelection();
+    if (!selection || !element) return;
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  useEffect(() => {
+    const routeKeyboard = (event) => {
+      if (memoryOpen || isEditableElement(event.target)) return;
+      const selectable = selectableContainer(event.target);
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        if (selectable) return selectContainerText(selectable);
+        expressionRef.current?.focus();
+        expressionRef.current?.setSelectionRange(0, expression.length);
+        return;
+      }
+      if (event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) return;
+      if (!/^[0-9A-Za-z.()+\-*/%^!πτ↑]$/.test(event.key)) return;
+      event.preventDefault();
+      const wasEditingExpression = document.activeElement === expressionRef.current;
+      expressionRef.current?.focus();
+      if (!wasEditingExpression) expressionRef.current?.setSelectionRange(expression.length, expression.length);
+      appendKey({ "*": "×", "/": "÷", "-": "−" }[event.key] ?? event.key);
+    };
+    window.addEventListener("keydown", routeKeyboard);
+    return () => window.removeEventListener("keydown", routeKeyboard);
+  }, [expression, memoryOpen]);
+
+  useEffect(() => {
+    if (!memoryOpen) return;
+    const trapFocus = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); closeMemory(); return; }
+      if (event.key !== "Tab") return;
+      const focusable = [...(memoryDialogRef.current?.querySelectorAll("button, [href], textarea, input, select, [tabindex]:not([tabindex='-1'])") ?? [])].filter((element) => !element.hasAttribute("disabled"));
+      if (!focusable.length) return;
+      const current = document.activeElement;
+      const index = focusable.indexOf(current);
+      if (event.shiftKey && index <= 0) { event.preventDefault(); focusable.at(-1)?.focus(); }
+      else if (!event.shiftKey && index === focusable.length - 1) { event.preventDefault(); focusable[0]?.focus(); }
+    };
+    requestAnimationFrame(() => memoryCloseRef.current?.focus());
+    window.addEventListener("keydown", trapFocus);
+    return () => window.removeEventListener("keydown", trapFocus);
+  }, [memoryOpen]);
+
   async function copyFull(full) {
     try { await navigator.clipboard.writeText(full); setToast("Full precision copied"); setTimeout(() => setToast(""), 1500); }
     catch { setToast("Copy is available in the browser"); }
@@ -147,6 +212,16 @@ export function App() {
   function useHistory(item) {
     updatePreview(item.expression);
     requestAnimationFrame(() => expressionRef.current?.focus());
+  }
+
+  function openMemory() { priorFocusRef.current = document.activeElement; setMemoryOpen(true); }
+  function closeMemory() { setMemoryOpen(false); requestAnimationFrame(() => (priorFocusRef.current instanceof HTMLElement ? priorFocusRef.current : expressionRef.current)?.focus()); }
+  function copyResult(full) { if (!hasTextSelection()) copyFull(full); }
+  function toggleInspector() { if (!hasTextSelection()) setInspectorOpen((open) => !open); }
+  function resultLabel(formatted, action) {
+    if (formatted.tower) return `${action}: ten, layer ${formatted.towerDepth}, magnitude ${formatted.towerMagnitude}; magnitude-only approximation`;
+    if (formatted.knuth) return `${action}: ${formatted.knuthBase}, ${formatted.knuthArrows.length} Knuth up arrows, ${formatted.knuthHeight}`;
+    return `${action}: ${formatted.text}`;
   }
 
   function renderResult(value) { return formatAutomatically(value, { base, precision, notation, groupDigits }); }
@@ -166,13 +241,14 @@ export function App() {
       <section className="calculation-stage" aria-label="Current calculation">
         <div className="stage-topline"><span>ACTIVE EXPRESSION</span><span className={expressionError ? "stage-hint expression-warning" : "stage-hint"}>{expressionError ? `⚠ ${expressionError}` : "Enter to save to History"}</span></div>
         <textarea ref={expressionRef} rows="1" aria-label="Expression" value={expression} onChange={(event) => updatePreview(event.target.value)} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 8 * 28)}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); commit(); } if (event.key === "Escape") { event.preventDefault(); updatePreview(""); } }} />
-        <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result" title={preview.full} onClick={() => setInspectorOpen((open) => !open)}>{renderResultContent(preview)}</button></div>{toast && <span className="toast" role="status">{toast}</span>}</div>
+        <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={preview.full} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{toast && <span className="toast" role="status">{toast}</span>}</div>
         {inspectorOpen && <div className="inspector"><div><span>engine</span><b>{inspection.engine ?? previewValue.engineLabel ?? "placeholder"}</b></div><div><span>representation</span><b>{inspection.representation ?? "native"}</b></div><div><span>precision</span><b>{inspection.precision ?? `${precisionLabel} digits`}</b></div><div><span>status</span><b>{inspection.precisionLost ? "magnitude-only" : inspection.exactness ?? "approximate"}</b></div>{formattedDigitCount && <div className="digit-count"><span>base-{base} digits</span><b>{renderResultContent(formattedDigitCount)}</b><small>{digitCount.certainty}</small></div>}<button onClick={() => copyFull(preview.full)}>Copy full precision</button></div>}
-        <div className="result-meta"><span>significand <b>{preview.sign || "positive"} {preview.significand}</b></span><span>exponent <b>{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"} · click result to inspect</span></div>
+        <div className="result-meta"><span>significand <b className="selectable-text">{preview.sign || "positive"} {preview.significand}</b></span><span>exponent <b className="selectable-text">{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"} · click result to inspect</span></div>
+        <span className="sr-only" role="status" aria-live="polite">{expressionError || toast}</span>
       </section>
       <section className="control-strip" aria-label="Display controls"><div className="control"><label>DISPLAY BASE</label><div className="segmented">{[10, 2, 16].map((item) => <button key={item} onClick={() => setBase(item)} className={base === item ? "selected" : ""}>{item === 10 ? "Decimal" : item === 2 ? "Binary" : "Hex"}</button>)}</div></div><div className="control precision"><label>DISPLAY PRECISION <strong>{precisionLabel} digits</strong></label><input aria-label="Display precision" type="range" min="16" max="1000" step="1" value={precision} onChange={(event) => setPrecision(Number(event.target.value))} /><div><span>16</span><span>1,000</span></div></div><div className="control notation"><div className="control-label-row"><label>NOTATION</label><button className={`grouping-toggle ${groupDigits ? "selected" : ""}`} aria-label="Group expanded decimal digits" aria-pressed={groupDigits} title="Group expanded decimal digits" onClick={() => setGroupDigits((enabled) => !enabled)}>,</button></div><select value={notation} onChange={(event) => setNotation(event.target.value)}><option value="auto">Auto</option><option value="scientific">Scientific</option><option value="engineering">Engineering</option><option value="expanded">Expanded</option></select></div></section>
-      <section className="desk"><div className="keypad-panel"><div className="panel-heading"><div><p className="eyebrow">INPUT PALETTE</p><select className="mode-select" aria-label="Input mode" value={activeMode} onChange={(event) => setActiveMode(event.target.value)}>{modes.map((mode) => <option key={mode}>{mode}</option>)}</select></div><div className="memory-strip">{memoryDisplay && <button className="memory-chip" title={`${memoryDisplay.full} · click to inspect memory`} onClick={() => setMemoryOpen(true)}>M {memoryDisplay.sign}{memoryDisplay.significand}{memoryDisplay.exponent && ` × 10^${memoryDisplay.exponent}`}</button>}<button onClick={() => setMemory(null)}>MC</button><button onClick={addToMemory}>M+</button><button onClick={recallMemory}>MR</button></div></div><div className="keypad">{paletteKeys.flat().map((key, index) => <button key={`${key}-${index}`} className={key === "=" ? "key equal" : ["AC", "⌫"].includes(key) ? "key utility" : ["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ", "sin", "cos", "tan", "ln", "log", "!", "π", "e", "τ", "abs", "mod", "%", "↑", "↑↑"].includes(key) ? "key function" : "key"} onClick={() => appendKey(key)}>{key}</button>)}</div><div className="shortcut-row"><span>Enter <b>save</b></span><span>Esc <b>clear</b></span><span>result click <b>inspect</b></span></div></div><div className="trail-panel"><div className="panel-heading"><div><p className="eyebrow">HISTORY</p><h2>{history.length} calculations</h2></div><button className="quiet" onClick={() => { setHistory([]); setNextId(1); }}>Reset history</button></div><div className="history-list">{history.map((item) => { const itemResult = renderResult(item.value); return <article className="history-item" key={item.id}><div className="history-top"><span className="history-id">@history({item.id})</span><button className="use-button" onClick={() => useHistory(item)}>Use</button></div><p className="history-expression">{item.expression}</p><button className="history-result" title={`${itemResult.full} · click to copy`} onClick={() => copyFull(itemResult.full)}>{renderResultContent(itemResult)}</button></article>; })}{!history.length && <p className="empty">History is clear. New committed calculations will appear here.</p>}</div></div></section>
+      <section className="desk"><div className="keypad-panel"><div className="panel-heading"><div><p className="eyebrow">INPUT PALETTE</p><select className="mode-select" aria-label="Input mode" value={activeMode} onChange={(event) => setActiveMode(event.target.value)}>{modes.map((mode) => <option key={mode}>{mode}</option>)}</select></div><div className="memory-strip">{memoryDisplay && <button className="memory-chip selectable-output" aria-label={resultLabel(memoryDisplay, "Open memory")} title={`${memoryDisplay.full} · click to inspect memory`} onClick={openMemory}>M {memoryDisplay.sign}{memoryDisplay.significand}{memoryDisplay.exponent && ` × 10^${memoryDisplay.exponent}`}</button>}<button aria-label="Clear memory" onClick={() => setMemory(null)}>MC</button><button aria-label="Add active expression to memory" onClick={addToMemory}>M+</button><button aria-label="Recall memory into expression" onClick={recallMemory}>MR</button></div></div><div className="keypad">{paletteKeys.flat().map((key, index) => <button key={`${key}-${index}`} aria-label={keyLabels[key] ?? `Insert ${key}`} className={key === "=" ? "key equal" : ["AC", "⌫"].includes(key) ? "key utility" : ["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ", "sin", "cos", "tan", "ln", "log", "!", "π", "e", "τ", "abs", "mod", "%", "↑", "↑↑"].includes(key) ? "key function" : "key"} onClick={() => appendKey(key)}>{key}</button>)}</div><div className="shortcut-row"><span>Enter <b>save</b></span><span>Esc <b>clear</b></span><span>result click <b>inspect</b></span></div></div><div className="trail-panel"><div className="panel-heading"><div><p className="eyebrow">HISTORY</p><h2>{history.length} calculations</h2></div><button className="quiet" onClick={() => { setHistory([]); setNextId(1); }}>Reset history</button></div><div className="history-list">{history.map((item) => { const itemResult = renderResult(item.value); return <article className="history-item" key={item.id}><div className="history-top"><span className="history-id selectable-text" aria-label={`History item ${item.id}`}>@history({item.id})</span><button className="use-button" aria-label={`Use History item ${item.id} in the active expression`} onClick={() => useHistory(item)}>Use</button></div><p className="history-expression selectable-text" aria-label={`History expression: ${item.expression}`}>{item.expression}</p><button className="history-result selectable-output" aria-label={resultLabel(itemResult, "Copy History result")} title={`${itemResult.full} · click to copy`} onClick={() => copyResult(itemResult.full)}>{renderResultContent(itemResult)}</button></article>; })}{!history.length && <p className="empty">History is clear. New committed calculations will appear here.</p>}</div></div></section>
     </section>
-    {memoryOpen && memory && <div className="memory-overlay" role="dialog" aria-label="Memory details"><div className="memory-card"><div className="panel-heading"><div><p className="eyebrow">MEMORY</p><h2>Accumulated expression</h2></div><button className="quiet" onClick={() => setMemoryOpen(false)}>Close</button></div><p className="memory-expression">{memory.expression}</p><button className="memory-answer" title={memoryDisplay.full} onClick={() => setMemoryOpen(false)}>{renderResultContent(memoryDisplay)}</button><div className="memory-actions"><button className="use-button" onClick={recallMemory}>Recall into expression</button><button className="quiet" onClick={() => { setMemory(null); setMemoryOpen(false); }}>Clear memory</button></div></div></div>}
+    {memoryOpen && memory && <div className="memory-overlay" role="dialog" aria-modal="true" aria-label="Memory details"><div className="memory-card" ref={memoryDialogRef}><div className="panel-heading"><div><p className="eyebrow">MEMORY</p><h2>Accumulated expression</h2></div><button className="quiet" ref={memoryCloseRef} onClick={closeMemory}>Close</button></div><p className="memory-expression selectable-text">{memory.expression}</p><button className="memory-answer selectable-output" aria-label={resultLabel(memoryDisplay, "Memory result")} title={memoryDisplay.full} onClick={() => { if (!hasTextSelection()) closeMemory(); }}>{renderResultContent(memoryDisplay)}</button><div className="memory-actions"><button className="use-button" onClick={recallMemory}>Recall into expression</button><button className="quiet" onClick={() => { setMemory(null); closeMemory(); }}>Clear memory</button></div></div></div>}
   </main>;
 }
