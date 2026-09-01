@@ -48,12 +48,24 @@ export function App() {
   const [expressionError, setExpressionError] = useState("");
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [expressionLines, setExpressionLines] = useState(1);
   const expressionRef = useRef(null);
   const memoryFeedbackTimer = useRef(null);
   const memoryDialogRef = useRef(null);
   const memoryCloseRef = useRef(null);
   const priorFocusRef = useRef(null);
   const focusExpression = () => requestAnimationFrame(() => expressionRef.current?.focus());
+  function sizeExpression(input = expressionRef.current) {
+    if (!input) return;
+    input.style.height = "auto";
+    const style = window.getComputedStyle(input);
+    const lineHeight = Number.parseFloat(style.lineHeight) || 28;
+    const verticalPadding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+    const height = Math.min(input.scrollHeight, (8 * lineHeight) + verticalPadding);
+    input.style.height = `${height}px`;
+    setExpressionLines(Math.max(1, Math.ceil((height - verticalPadding) / lineHeight)));
+  }
+  useEffect(() => { requestAnimationFrame(() => sizeExpression()); }, [expression, expressionLines]);
   useEffect(() => {
     const strip = document.querySelector(".memory-strip");
     const returnFocus = (event) => { if (!event.target.closest(".memory-chip")) focusExpression(); };
@@ -237,10 +249,10 @@ export function App() {
   };
   function recallMemory() { if (memory?.expression) { updatePreview(`${expression}${expression ? " " : ""}(${memory.expression})`); requestAnimationFrame(() => expressionRef.current?.focus()); setMemoryOpen(false); } }
   return <main className="app-shell">
-    <section className="workbench">
+    <section className={`workbench ${expressionLines >= 5 ? "expression-tall" : ""}`}>
       <section className="calculation-stage" aria-label="Current calculation">
         <div className="stage-topline"><span>ACTIVE EXPRESSION</span><span className={expressionError ? "stage-hint expression-warning" : "stage-hint"}>{expressionError ? `⚠ ${expressionError}` : "Enter to save to History"}</span></div>
-        <textarea ref={expressionRef} rows="1" aria-label="Expression" value={expression} onChange={(event) => updatePreview(event.target.value)} onInput={(event) => { event.currentTarget.style.height = "auto"; event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 8 * 28)}px`; }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); commit(); } if (event.key === "Escape") { event.preventDefault(); updatePreview(""); } }} />
+        <textarea ref={expressionRef} rows="1" aria-label="Expression" value={expression} onChange={(event) => updatePreview(event.target.value)} onInput={(event) => sizeExpression(event.currentTarget)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); commit(); } if (event.key === "Escape") { event.preventDefault(); updatePreview(""); } }} />
         <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={preview.full} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{toast && <span className="toast" role="status">{toast}</span>}</div>
         {inspectorOpen && <div className="inspector"><div><span>engine</span><b>{inspection.engine ?? previewValue.engineLabel ?? "placeholder"}</b></div><div><span>representation</span><b>{inspection.representation ?? "native"}</b></div><div><span>precision</span><b>{inspection.precision ?? `${precisionLabel} digits`}</b></div><div><span>status</span><b>{inspection.precisionLost ? "magnitude-only" : inspection.exactness ?? "approximate"}</b></div>{formattedDigitCount && <div className="digit-count"><span>base-{base} digits</span><b>{renderResultContent(formattedDigitCount)}</b><small>{digitCount.certainty}</small></div>}<button onClick={() => copyFull(preview.full)}>Copy full precision</button></div>}
         <div className="result-meta"><span>significand <b className="selectable-text">{preview.sign || "positive"} {preview.significand}</b></span><span>exponent <b className="selectable-text">{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"} · click result to inspect</span></div>

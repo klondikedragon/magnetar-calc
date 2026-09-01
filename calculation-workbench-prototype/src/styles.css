@@ -63,6 +63,21 @@ textarea, .selectable-output, .selectable-text { user-select: text; -webkit-user
 .selectable-output { cursor: text; }
 button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid #829c30; outline-offset: 2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.expression-tall { padding-top: 8px; padding-bottom: 8px; }
+.expression-tall .calculation-stage { padding: 8px 12px; }
+.expression-tall .calculation-stage textarea { min-height: 28px; max-height: 188px; padding-top: 6px; padding-bottom: 2px; font-size: clamp(12px, 1.25vw, 15px); line-height: 22px; }
+.expression-tall .result-line { min-height: 32px; }
+.expression-tall .result-meta { gap: 9px; margin-top: 4px; padding-top: 4px; font-size: 8px; }
+.expression-tall .control-strip { padding-top: 7px; padding-bottom: 8px; }
+.expression-tall .control label { margin-bottom: 3px; }
+.expression-tall .control-label-row label { margin-bottom: 3px; }
+.expression-tall .segmented button, .expression-tall .notation select { padding-top: 4px; padding-bottom: 4px; }
+.expression-tall .keypad-panel, .expression-tall .trail-panel { padding: 9px 11px; }
+.expression-tall .panel-heading { padding-bottom: 5px; }
+.expression-tall .keypad { grid-template-rows: repeat(7, minmax(12px, 1fr)); gap: 3px; height: calc(100% - 48px); }
+.expression-tall .key { font-size: clamp(9px, .95vw, 12px); }
+.expression-tall .key.equal { font-size: 14px; }
+.expression-tall .shortcut-row { padding-top: 3px; font-size: 8px; }
 .number-result:has(.tower-collapsed) { line-height: 1.45; padding-block: .35em; }
 .history-result:has(.tower-collapsed) { line-height: 1.35; padding-block: .25em; }
 .tower-collapsed > sup { margin-top: -.35em; color: #253a3a; font-size: .62em; line-height: 1.05; max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
