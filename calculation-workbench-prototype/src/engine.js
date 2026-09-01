@@ -214,6 +214,16 @@ export const breakEternityEngine = {
   evaluate(expression, references = new Map()) { return evaluateBreak(expression, references); },
   format(value, options = {}) { return value.kind === "break-eternity" ? formatBreak(value, options.base, options.precision, options.notation) : placeholderEngine.format(value, options); },
   inspect(value, options = {}) { return { ...this.format(value, options), representation: value.kind === "break-eternity" ? `layer ${value.decimal.layer}` : "placeholder", exactness: "wide-range approximation", precision: "~15 significant digits" }; },
+  digitCount(value, base = 10) {
+    const absolute = value.decimal.abs();
+    if (absolute.sign === 0 || absolute.lt(1)) return { value: { kind: "break-eternity", decimal: new BreakDecimal(1), full: "1" }, certainty: "exact" };
+    const logarithm = base === 10 ? absolute.log10() : absolute.log(base);
+    const digits = logarithm.floor().add(1);
+    return {
+      value: { kind: "break-eternity", decimal: digits, full: digits.toString() },
+      certainty: value.decimal.layer > 0 ? "magnitude-only" : "estimated",
+    };
+  },
   convertBase(value, base) { return this.format(value, { base }); },
 };
 
@@ -253,6 +263,16 @@ export const decimalEngine = {
   },
   format(value, options = {}) { return value.kind === "decimal.js" ? formatDecimal(value, options.base, options.precision, options.notation) : breakEternityEngine.format(value, options); },
   inspect(value, options = {}) { return { ...this.format(value, options), engine: "decimal.js", representation: "arbitrary-precision decimal", exactness: "rounded to configured precision", precision: `${options.precision ?? 48} significant digits` }; },
+  digitCount(value, base = 10) {
+    const absolute = value.decimal.abs();
+    if (absolute.isZero() || absolute.lt(1)) return { value: { kind: "decimal.js", decimal: new Decimal(1), full: "1" }, certainty: "exact" };
+    if (base === 10 && Number.isSafeInteger(absolute.e)) {
+      const digits = new Decimal(absolute.e).add(1);
+      return { value: { kind: "decimal.js", decimal: digits, full: digits.toString() }, certainty: "exact" };
+    }
+    const digits = absolute.log(base).floor().add(1);
+    return { value: { kind: "decimal.js", decimal: digits, full: digits.toString() }, certainty: "estimated" };
+  },
   convertBase(value, base) { return this.format(value, { base }); },
 };
 
@@ -284,6 +304,14 @@ export function inspectAutomatically(value, options = {}) {
   if (value.kind === "decimal.js") return decimalEngine.inspect(value, options);
   if (value.kind === "break-eternity") return { ...breakEternityEngine.inspect(value, options), engine: value.engineLabel ?? "break_eternity.js" };
   return placeholderEngine.inspect(value, options);
+}
+
+export function digitCountAutomatically(value, base = 10) {
+  try {
+    if (value.kind === "decimal.js") return decimalEngine.digitCount(value, base);
+    if (value.kind === "break-eternity") return breakEternityEngine.digitCount(value, base);
+  } catch { /* An unsupported alternate engine simply omits this optional inspection detail. */ }
+  return null;
 }
 
 // Browser storage holds plain JSON, so preserve the engine value as a string and
