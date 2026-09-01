@@ -110,7 +110,14 @@ export function App() {
   function appendKey(key) {
     if (key === "=") { commit(); focusExpression(); return; }
     if (key === "AC") { setExpression(""); setToast(""); focusExpression(); return; }
-    if (key === "⌫") { const start = expressionRef.current?.selectionStart ?? expression.length; const end = expressionRef.current?.selectionEnd ?? start; updatePreview(start !== end ? `${expression.slice(0, start)}${expression.slice(end)}` : `${expression.slice(0, Math.max(0, start - 1))}${expression.slice(end)}`); focusExpression(); return; }
+    if (key === "⌫") {
+      const start = expressionRef.current?.selectionStart ?? expression.length;
+      const end = expressionRef.current?.selectionEnd ?? start;
+      const caret = start !== end ? start : Math.max(0, start - 1);
+      updatePreview(start !== end ? `${expression.slice(0, start)}${expression.slice(end)}` : `${expression.slice(0, caret)}${expression.slice(end)}`);
+      requestAnimationFrame(() => { expressionRef.current?.focus(); expressionRef.current?.setSelectionRange(caret, caret); });
+      return;
+    }
     if (key === "Ans") { updatePreview(`${expression}@history(${history[0]?.id ?? 1})`); focusExpression(); return; }
     if (key === "M+") { addToMemory(); focusExpression(); return; }
     const input = expressionRef.current;
