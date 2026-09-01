@@ -203,8 +203,8 @@ function formatBreak(value, base = 10, precision = 48, notation = "scientific") 
   const magnitude = String(decimal.mag);
   let expanded = magnitude;
   for (let index = 0; index < arrowCount; index += 1) expanded = `10^(${expanded})`;
-  const collapsed = `10⟦${arrowCount}⟧ᵐ`;
-  return { sign, significand: dense ? collapsed : expanded, exponent: `layer ${arrowCount}`, tower: true, towerDepth: arrowCount, towerMagnitude: magnitude, towerExpanded: !dense && arrowCount <= 3, arrowCount, denseArrowCount: dense ? arrowCount : null, layer: arrowCount, magnitude, precisionLost: true, text: `${sign}${dense ? collapsed : expanded}`, full };
+  const collapsed = `10⟦${arrowCount}⟧${magnitude}`;
+  return { sign, significand: dense ? collapsed : expanded, exponent: `layer ${arrowCount}`, tower: true, towerDepth: arrowCount, towerMagnitude: magnitude, towerExpanded: !dense && arrowCount <= 3, arrowCount, denseArrowCount: dense ? arrowCount : null, layer: arrowCount, magnitude, precisionLost: true, text: `${sign}${dense ? `10⟦${arrowCount}⟧^${magnitude}` : expanded}`, full };
 }
 
 export const breakEternityEngine = {

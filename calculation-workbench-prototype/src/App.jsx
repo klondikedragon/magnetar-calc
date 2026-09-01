@@ -44,6 +44,13 @@ export function App() {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const expressionRef = useRef(null);
   const memoryFeedbackTimer = useRef(null);
+  const focusExpression = () => requestAnimationFrame(() => expressionRef.current?.focus());
+  useEffect(() => {
+    const strip = document.querySelector(".memory-strip");
+    const returnFocus = (event) => { if (!event.target.closest(".memory-chip")) focusExpression(); };
+    strip?.addEventListener("click", returnFocus);
+    return () => strip?.removeEventListener("click", returnFocus);
+  }, []);
   useEffect(() => {
     try {
       window.localStorage.setItem(storageKey, JSON.stringify({
@@ -98,11 +105,11 @@ export function App() {
   }
 
   function appendKey(key) {
-    if (key === "=") return commit();
-    if (key === "AC") { setExpression(""); setToast(""); return; }
-    if (key === "⌫") { const start = expressionRef.current?.selectionStart ?? expression.length; const end = expressionRef.current?.selectionEnd ?? start; return updatePreview(start !== end ? `${expression.slice(0, start)}${expression.slice(end)}` : `${expression.slice(0, Math.max(0, start - 1))}${expression.slice(end)}`); }
-    if (key === "Ans") return updatePreview(`${expression}@history(${history[0]?.id ?? 1})`);
-    if (key === "M+") return addToMemory();
+    if (key === "=") { commit(); focusExpression(); return; }
+    if (key === "AC") { setExpression(""); setToast(""); focusExpression(); return; }
+    if (key === "⌫") { const start = expressionRef.current?.selectionStart ?? expression.length; const end = expressionRef.current?.selectionEnd ?? start; updatePreview(start !== end ? `${expression.slice(0, start)}${expression.slice(end)}` : `${expression.slice(0, Math.max(0, start - 1))}${expression.slice(end)}`); focusExpression(); return; }
+    if (key === "Ans") { updatePreview(`${expression}@history(${history[0]?.id ?? 1})`); focusExpression(); return; }
+    if (key === "M+") { addToMemory(); focusExpression(); return; }
     const input = expressionRef.current;
     const start = input?.selectionStart ?? expression.length;
     const end = input?.selectionEnd ?? start;
@@ -135,11 +142,14 @@ export function App() {
   function renderResult(value) { return formatAutomatically(value, { base, precision, notation }); }
 
   const memoryDisplay = memory ? renderResult(memory.value) : null;
-  const renderResultContent = (formatted) => formatted.knuth
-    ? <><span className="sign">{formatted.sign}</span><span className="knuth-output">{formatted.knuthBase} {formatted.knuthArrows}<sup>{formatted.knuthHeight}</sup></span></>
-    : formatted.tower
-    ? <><span className="sign">{formatted.sign}</span>{formatted.towerExpanded ? <span className="tower-expanded">{formatted.significand}</span> : <span className="tower-collapsed"><span>10</span><sup>⟦{formatted.towerDepth}⟧ {formatted.towerMagnitude}</sup></span>}</>
-    : <><span className="sign">{formatted.sign}</span><span>{formatted.significand}</span>{formatted.exponent && <span className="result-exponent">× {base === 10 ? "10" : base}<sup>{formatted.exponent}</sup></span>}</>;
+  const renderResultContent = (formatted) => {
+    if (formatted.knuth) return <><span className="sign">{formatted.sign}</span><span className="knuth-output">{formatted.knuthBase} {formatted.knuthArrows} {formatted.knuthHeight}</span></>;
+    if (formatted.tower) {
+      if (formatted.towerExpanded) return <><span className="sign">{formatted.sign}</span><span className="tower-expanded">{formatted.significand}</span></>;
+      return <><span className="sign">{formatted.sign}</span>{formatted === preview ? <span className="tower-detail"><span>10</span><sup className="tower-depth">⟦{formatted.towerDepth}⟧<sup className="tower-magnitude">{formatted.towerMagnitude}</sup></sup></span> : <span className="tower-compact"><span>10⟦{formatted.towerDepth}⟧</span><sup>{formatted.towerMagnitude}</sup></span>}</>;
+    }
+    return <><span className="sign">{formatted.sign}</span><span>{formatted.significand}</span>{formatted.exponent && <span className="result-exponent">× {base === 10 ? "10" : base}<sup>{formatted.exponent}</sup></span>}</>;
+  };
   function recallMemory() { if (memory?.expression) { updatePreview(`${expression}${expression ? " " : ""}(${memory.expression})`); requestAnimationFrame(() => expressionRef.current?.focus()); setMemoryOpen(false); } }
   return <main className="app-shell">
     <section className="workbench">
