@@ -53,6 +53,11 @@
 .digit-count { min-width: 94px; }
 .digit-count b { display: inline-flex; align-items: baseline; gap: 3px; min-height: 20px; font-size: 12px; overflow: visible; }
 .digit-count small { color: #71843c; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.control-label-row { display: flex; align-items: flex-start; justify-content: space-between; }
+.control-label-row label { margin-bottom: 6px; }
+.grouping-toggle { width: 18px; height: 17px; margin-top: -3px; border: 1px solid #d6d9d2; border-radius: 4px; background: #fffefa; color: #637174; font: 700 12px/1 "DM Mono", monospace; }
+.grouping-toggle:hover { border-color: #aebf7a; color: #5f7520; }
+.grouping-toggle.selected { background: #e8efcd; border-color: #b7cb73; color: #50681c; }
 .number-result:has(.tower-collapsed) { line-height: 1.45; padding-block: .35em; }
 .history-result:has(.tower-collapsed) { line-height: 1.35; padding-block: .25em; }
 .tower-collapsed > sup { margin-top: -.35em; color: #253a3a; font-size: .62em; line-height: 1.05; max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

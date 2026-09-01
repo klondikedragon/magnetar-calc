@@ -33,6 +33,7 @@ export function App() {
   const [base, setBase] = useState(() => storedWorkspace?.view?.base ?? storedWorkspace?.base ?? 10);
   const [precision, setPrecision] = useState(() => storedWorkspace?.view?.precision ?? storedWorkspace?.precision ?? 48);
   const [notation, setNotation] = useState(() => storedWorkspace?.view?.notation ?? storedWorkspace?.notation ?? "auto");
+  const [groupDigits, setGroupDigits] = useState(() => storedWorkspace?.view?.groupDigits ?? true);
   const [activeMode, setActiveMode] = useState(() => storedWorkspace?.view?.activeMode ?? storedWorkspace?.activeMode ?? "Calculator");
   const [history, setHistory] = useState(() => storedWorkspace?.history?.map((item) => ({ ...item, value: deserializeValue(item.value) })) ?? initialHistory);
   const [nextId, setNextId] = useState(() => storedWorkspace?.nextId ?? 4);
@@ -55,19 +56,19 @@ export function App() {
     try {
       window.localStorage.setItem(storageKey, JSON.stringify({
         expression, nextId,
-        view: { base, precision, notation, activeMode },
+        view: { base, precision, notation, groupDigits, activeMode },
         previewValue: serializeValue(previewValue),
         history: history.map((item) => ({ ...item, value: serializeValue(item.value) })),
         memory: memory ? { ...memory, value: serializeValue(memory.value) } : null,
       }));
     } catch { /* Storage is optional; the calculator remains usable without it. */ }
-  }, [expression, base, precision, notation, activeMode, nextId, previewValue, history, memory]);
+  }, [expression, base, precision, notation, groupDigits, activeMode, nextId, previewValue, history, memory]);
   const precisionLabel = useMemo(() => precision >= 1000 ? "1,000" : precision, [precision]);
   const paletteKeys = activeMode === "Number theory" ? numberTheoryKeys : keys;
-  const preview = formatAutomatically(previewValue, { base, precision, notation });
+  const preview = formatAutomatically(previewValue, { base, precision, notation, groupDigits });
   const inspection = inspectAutomatically(previewValue, { base, precision, notation });
   const digitCount = digitCountAutomatically(previewValue, base);
-  const formattedDigitCount = digitCount?.value ? formatAutomatically(digitCount.value, { base, precision, notation }) : null;
+  const formattedDigitCount = digitCount?.value ? formatAutomatically(digitCount.value, { base, precision, notation, groupDigits }) : null;
 
   const referenceValues = useMemo(() => new Map(history.map((item) => [`@history(${item.id})`, item.value.kind === "number" ? String(item.value.number) : item.value.decimal?.toString?.() ?? "1e308"])), [history]);
 
@@ -141,7 +142,7 @@ export function App() {
     requestAnimationFrame(() => expressionRef.current?.focus());
   }
 
-  function renderResult(value) { return formatAutomatically(value, { base, precision, notation }); }
+  function renderResult(value) { return formatAutomatically(value, { base, precision, notation, groupDigits }); }
 
   const memoryDisplay = memory ? renderResult(memory.value) : null;
   const renderResultContent = (formatted) => {
@@ -162,7 +163,7 @@ export function App() {
         {inspectorOpen && <div className="inspector"><div><span>engine</span><b>{inspection.engine ?? previewValue.engineLabel ?? "placeholder"}</b></div><div><span>representation</span><b>{inspection.representation ?? "native"}</b></div><div><span>precision</span><b>{inspection.precision ?? `${precisionLabel} digits`}</b></div><div><span>status</span><b>{inspection.precisionLost ? "magnitude-only" : inspection.exactness ?? "approximate"}</b></div>{formattedDigitCount && <div className="digit-count"><span>base-{base} digits</span><b>{renderResultContent(formattedDigitCount)}</b><small>{digitCount.certainty}</small></div>}<button onClick={() => copyFull(preview.full)}>Copy full precision</button></div>}
         <div className="result-meta"><span>significand <b>{preview.sign || "positive"} {preview.significand}</b></span><span>exponent <b>{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"} · click result to inspect</span></div>
       </section>
-      <section className="control-strip" aria-label="Display controls"><div className="control"><label>DISPLAY BASE</label><div className="segmented">{[10, 2, 16].map((item) => <button key={item} onClick={() => setBase(item)} className={base === item ? "selected" : ""}>{item === 10 ? "Decimal" : item === 2 ? "Binary" : "Hex"}</button>)}</div></div><div className="control precision"><label>DISPLAY PRECISION <strong>{precisionLabel} digits</strong></label><input aria-label="Display precision" type="range" min="16" max="1000" step="1" value={precision} onChange={(event) => setPrecision(Number(event.target.value))} /><div><span>16</span><span>1,000</span></div></div><div className="control notation"><label>NOTATION</label><select value={notation} onChange={(event) => setNotation(event.target.value)}><option value="auto">Auto</option><option value="scientific">Scientific</option><option value="engineering">Engineering</option><option value="expanded">Expanded</option></select></div></section>
+      <section className="control-strip" aria-label="Display controls"><div className="control"><label>DISPLAY BASE</label><div className="segmented">{[10, 2, 16].map((item) => <button key={item} onClick={() => setBase(item)} className={base === item ? "selected" : ""}>{item === 10 ? "Decimal" : item === 2 ? "Binary" : "Hex"}</button>)}</div></div><div className="control precision"><label>DISPLAY PRECISION <strong>{precisionLabel} digits</strong></label><input aria-label="Display precision" type="range" min="16" max="1000" step="1" value={precision} onChange={(event) => setPrecision(Number(event.target.value))} /><div><span>16</span><span>1,000</span></div></div><div className="control notation"><div className="control-label-row"><label>NOTATION</label><button className={`grouping-toggle ${groupDigits ? "selected" : ""}`} aria-label="Group expanded decimal digits" aria-pressed={groupDigits} title="Group expanded decimal digits" onClick={() => setGroupDigits((enabled) => !enabled)}>,</button></div><select value={notation} onChange={(event) => setNotation(event.target.value)}><option value="auto">Auto</option><option value="scientific">Scientific</option><option value="engineering">Engineering</option><option value="expanded">Expanded</option></select></div></section>
       <section className="desk"><div className="keypad-panel"><div className="panel-heading"><div><p className="eyebrow">INPUT PALETTE</p><select className="mode-select" aria-label="Input mode" value={activeMode} onChange={(event) => setActiveMode(event.target.value)}>{modes.map((mode) => <option key={mode}>{mode}</option>)}</select></div><div className="memory-strip">{memoryDisplay && <button className="memory-chip" title={`${memoryDisplay.full} · click to inspect memory`} onClick={() => setMemoryOpen(true)}>M {memoryDisplay.sign}{memoryDisplay.significand}{memoryDisplay.exponent && ` × 10^${memoryDisplay.exponent}`}</button>}<button onClick={() => setMemory(null)}>MC</button><button onClick={addToMemory}>M+</button><button onClick={recallMemory}>MR</button></div></div><div className="keypad">{paletteKeys.flat().map((key, index) => <button key={`${key}-${index}`} className={key === "=" ? "key equal" : ["AC", "⌫"].includes(key) ? "key utility" : ["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ", "sin", "cos", "tan", "ln", "log", "!", "π", "e", "τ", "abs", "mod", "%", "↑", "↑↑"].includes(key) ? "key function" : "key"} onClick={() => appendKey(key)}>{key}</button>)}</div><div className="shortcut-row"><span>Enter <b>save</b></span><span>Esc <b>clear</b></span><span>result click <b>inspect</b></span></div></div><div className="trail-panel"><div className="panel-heading"><div><p className="eyebrow">HISTORY</p><h2>{history.length} calculations</h2></div><button className="quiet" onClick={() => { setHistory([]); setNextId(1); }}>Reset history</button></div><div className="history-list">{history.map((item) => { const itemResult = renderResult(item.value); return <article className="history-item" key={item.id}><div className="history-top"><span className="history-id">@history({item.id})</span><button className="use-button" onClick={() => useHistory(item)}>Use</button></div><p className="history-expression">{item.expression}</p><button className="history-result" title={`${itemResult.full} · click to copy`} onClick={() => copyFull(itemResult.full)}>{renderResultContent(itemResult)}</button></article>; })}{!history.length && <p className="empty">History is clear. New committed calculations will appear here.</p>}</div></div></section>
     </section>
     {memoryOpen && memory && <div className="memory-overlay" role="dialog" aria-label="Memory details"><div className="memory-card"><div className="panel-heading"><div><p className="eyebrow">MEMORY</p><h2>Accumulated expression</h2></div><button className="quiet" onClick={() => setMemoryOpen(false)}>Close</button></div><p className="memory-expression">{memory.expression}</p><button className="memory-answer" title={memoryDisplay.full} onClick={() => setMemoryOpen(false)}>{renderResultContent(memoryDisplay)}</button><div className="memory-actions"><button className="use-button" onClick={recallMemory}>Recall into expression</button><button className="quiet" onClick={() => { setMemory(null); setMemoryOpen(false); }}>Clear memory</button></div></div></div>}

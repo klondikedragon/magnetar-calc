@@ -295,9 +295,15 @@ export function evaluateAutomatically(expression, references = new Map(), option
 }
 
 export function formatAutomatically(value, options = {}) {
-  if (value.kind === "decimal.js") return decimalEngine.format(value, options);
-  if (value.kind === "break-eternity") return breakEternityEngine.format(value, options);
-  return placeholderEngine.format(value, options);
+  const formatted = value.kind === "decimal.js"
+    ? decimalEngine.format(value, options)
+    : value.kind === "break-eternity"
+      ? breakEternityEngine.format(value, options)
+      : placeholderEngine.format(value, options);
+  if (!options.groupDigits || options.base !== 10 || formatted.exponent || formatted.tower || formatted.knuth || !/^\d+(?:\.\d+)?$/.test(formatted.significand)) return formatted;
+  const [whole, fraction] = formatted.significand.split(".");
+  const grouped = `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${fraction ? `.${fraction}` : ""}`;
+  return { ...formatted, significand: grouped, text: `${formatted.sign}${grouped}` };
 }
 
 export function inspectAutomatically(value, options = {}) {
