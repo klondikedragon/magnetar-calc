@@ -71,6 +71,14 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .expression-tall .result-line { min-height: 32px; }
 .expression-tall .result-meta { gap: 9px; margin-top: 4px; padding-top: 4px; font-size: 8px; }
 .expression-tall .control-strip { padding-top: 7px; padding-bottom: 8px; }
+
+/* Exact integer primality is intentionally quiet: the result remains primary. */
+.primality-meta { color: #5f7520; font-weight: 700; }
+.primality-meta.composite, .primality-meta.not-prime { color: #7d8684; font-weight: 500; }
+.primality-meta.checking { color: #89918e; font-weight: 500; }
+.prime-badge { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; margin-left: 6px; min-width: 14px; height: 14px; padding: 0 3px; border: 1px solid #9db35a; border-radius: 999px; color: #5b7024; background: #f6fae9; font: 700 8px/1 "DM Mono", monospace; vertical-align: middle; }
+.prime-badge.probable { border-color: #c6ad72; color: #8a6e2b; background: #fff9e8; }
+.inspector b small { color: #778184; font: 9px "DM Sans", sans-serif; }
 .expression-tall .control label { margin-bottom: 3px; }
 .expression-tall .control-label-row label { margin-bottom: 3px; }
 .expression-tall .segmented button, .expression-tall .notation select { padding-top: 4px; padding-bottom: 4px; }

@@ -322,6 +322,86 @@ function looksBeyondDecimal(expression) {
 
 export const engineRegistry = [decimalEngine, breakEternityEngine];
 
+// Decimal.js intentionally rounds arithmetic to its configured precision.  For
+// primality, "looks like an integer" is not enough: we only classify values we
+// can rebuild with native arbitrary-size integer arithmetic.
+const exactIntegerDigitLimit = 1000;
+const exactIntegerBitLimit = 4096;
+
+function exactIntegerExpression(expression, references = new Map()) {
+  const tokens = tokenize(expression);
+  let position = 0;
+  const peek = () => tokens[position];
+  const take = () => tokens[position++];
+  const guard = (integer) => {
+    if (integer.toString().replace("-", "").length > exactIntegerDigitLimit || integer.toString(2).length > exactIntegerBitLimit) throw new Error("exact integer is outside the primality range");
+    return integer;
+  };
+  const referencedInteger = (token) => {
+    const reference = references.get(token);
+    if (reference && typeof reference === "object" && /^-?\d+$/.test(reference.exactInteger ?? "")) return BigInt(reference.exactInteger);
+    throw new Error("history value is not an exact integer");
+  };
+  const primary = () => {
+    const token = take();
+    if (token === "(") { const result = addSub(); if (take() !== ")") throw new Error("missing parenthesis"); return result; }
+    if (token?.startsWith("@history")) return referencedInteger(token);
+    if (/^\d+$/.test(token)) return BigInt(token);
+    throw new Error("not an integer-only expression");
+  };
+  const unary = () => {
+    if (peek() === "−" || peek() === "-") { take(); return -unary(); }
+    if (peek() === "+") { take(); return unary(); }
+    let result = primary();
+    while (peek() === "!") {
+      take();
+      if (result < 0n || result > 449n) throw new Error("factorial outside exact primality range");
+      let factorial = 1n;
+      for (let index = 2n; index <= result; index += 1n) factorial *= index;
+      result = guard(factorial);
+    }
+    return result;
+  };
+  const power = () => {
+    const left = unary();
+    if (peek() === "^" || peek() === "↑") {
+      take();
+      const right = power();
+      if (right < 0n || right > 4096n) throw new Error("power outside exact primality range");
+      return guard(left ** right);
+    }
+    return left;
+  };
+  const mulDiv = () => {
+    let result = power();
+    while (["*", "×", "/", "÷", "%", "mod"].includes(peek())) {
+      const operation = take(); const right = power();
+      if (right === 0n) throw new Error("division by zero");
+      if (operation === "/" || operation === "÷") { if (result % right !== 0n) throw new Error("not an exact integer"); result /= right; }
+      else if (operation === "%" || operation === "mod") result %= right;
+      else result = guard(result * right);
+    }
+    return result;
+  };
+  function addSub() {
+    let result = mulDiv();
+    while (["+", "−", "-"].includes(peek())) { const operation = take(); const right = mulDiv(); result = guard(operation === "+" ? result + right : result - right); }
+    return result;
+  }
+  const result = guard(addSub());
+  if (position !== tokens.length) throw new Error("not an integer-only expression");
+  return result;
+}
+
+function attachExactInteger(value, expression, references) {
+  if (value.kind !== "decimal.js" || !value.decimal.isInteger()) return value;
+  try {
+    const exactInteger = exactIntegerExpression(expression, references).toString();
+    if (value.decimal.toFixed() !== exactInteger) return value;
+    return { ...value, exactInteger };
+  } catch { return value; }
+}
+
 export function evaluateAutomatically(expression, references = new Map(), options = {}) {
   const structuralHierarchy = expression.trim().match(/^fgh([3-5])\(\s*(\d+)\s*\)$/i);
   if (structuralHierarchy) {
@@ -334,7 +414,7 @@ export function evaluateAutomatically(expression, references = new Map(), option
   for (const engine of ordered) {
     try {
       const value = engine.evaluate(expression, references, options);
-      return { ...value, engineId: engine.id ?? "placeholder", engineLabel: engine.label ?? "Wide range" };
+      return attachExactInteger({ ...value, engineId: engine.id ?? "placeholder", engineLabel: engine.label ?? "Wide range" }, expression, references);
     } catch (error) { lastError = error; }
   }
   throw lastError ?? new Error("No compatible engine");
@@ -366,6 +446,45 @@ export function digitCountAutomatically(value, base = 10) {
     if (value.kind === "break-eternity") return breakEternityEngine.digitCount(value, base);
   } catch { /* An unsupported alternate engine simply omits this optional inspection detail. */ }
   return null;
+}
+
+function modularPower(base, exponent, modulus) {
+  let result = 1n;
+  let factor = base % modulus;
+  let power = exponent;
+  while (power > 0n) { if (power & 1n) result = (result * factor) % modulus; factor = (factor * factor) % modulus; power >>= 1n; }
+  return result;
+}
+
+function millerRabin(integer, bases) {
+  if (integer < 2n) return false;
+  for (const prime of [2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n, 23n, 29n, 31n, 37n]) { if (integer === prime) return true; if (integer % prime === 0n) return false; }
+  let oddPart = integer - 1n; let twos = 0;
+  while (oddPart % 2n === 0n) { oddPart /= 2n; twos += 1; }
+  for (const rawBase of bases) {
+    const base = rawBase % integer;
+    if (base < 2n) continue;
+    let witness = modularPower(base, oddPart, integer);
+    if (witness === 1n || witness === integer - 1n) continue;
+    let passed = false;
+    for (let step = 1; step < twos; step += 1) { witness = (witness * witness) % integer; if (witness === integer - 1n) { passed = true; break; } }
+    if (!passed) return false;
+  }
+  return true;
+}
+
+export function analyzePrimality(value) {
+  if (!value?.exactInteger || !/^-?\d+$/.test(value.exactInteger)) return null;
+  const integer = BigInt(value.exactInteger);
+  if (integer < 2n) return { kind: "not-prime", certainty: "verified", method: "integer definition" };
+  const uint64Limit = 18446744073709551616n;
+  if (integer < uint64Limit) {
+    const prime = millerRabin(integer, [2n, 325n, 9375n, 28178n, 450775n, 9780504n, 1795265022n]);
+    return { kind: prime ? "prime" : "composite", certainty: "verified", method: "deterministic Miller–Rabin (< 2⁶⁴)" };
+  }
+  if (value.exactInteger.length > exactIntegerDigitLimit) return null;
+  const prime = millerRabin(integer, [2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n, 23n, 29n, 31n, 37n, 41n, 43n, 47n, 53n]);
+  return { kind: prime ? "prime" : "composite", certainty: prime ? "probable" : "verified", method: prime ? "16-round Miller–Rabin" : "Miller–Rabin witness" };
 }
 
 // Browser storage holds plain JSON, so preserve the engine value as a string and
