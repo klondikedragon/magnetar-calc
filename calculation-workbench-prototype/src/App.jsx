@@ -50,6 +50,7 @@ export function App() {
   const [nextId, setNextId] = useState(() => storedWorkspace?.nextId ?? 4);
   const [memory, setMemory] = useState(() => storedWorkspace?.memory ? { ...storedWorkspace.memory, value: deserializeValue(storedWorkspace.memory.value) } : null);
   const [previewValue, setPreviewValue] = useState(() => deserializeValue(storedWorkspace?.previewValue) ?? initialHistory[0].value);
+  const [calculation, setCalculation] = useState({ status: "idle", commitOnSuccess: false, startedAt: 0 });
   const [toast, setToast] = useState("");
   const [expressionError, setExpressionError] = useState("");
   const [memoryOpen, setMemoryOpen] = useState(false);
@@ -60,6 +61,9 @@ export function App() {
   const memoryDialogRef = useRef(null);
   const memoryCloseRef = useRef(null);
   const priorFocusRef = useRef(null);
+  const jobCounterRef = useRef(0);
+  const workerRef = useRef(null);
+  const commitOnSuccessRef = useRef(false);
   const focusExpression = () => requestAnimationFrame(() => expressionRef.current?.focus());
   function sizeExpression(input = expressionRef.current) {
     if (!input) return;
@@ -98,16 +102,45 @@ export function App() {
   const formattedDigitCount = digitCount?.value ? formatAutomatically(digitCount.value, { base, precision, notation, groupDigits }) : null;
 
   const referenceValues = useMemo(() => new Map(history.map((item) => [`@history(${item.id})`, item.value.kind === "number" ? String(item.value.number) : item.value.decimal?.toString?.() ?? "1e308"])), [history]);
+  const workerReferences = useMemo(() => history.map((item) => [`@history(${item.id})`, serializeValue(item.value)]), [history]);
 
   function updatePreview(nextExpression) {
     setExpression(nextExpression);
-    if (!nextExpression.trim()) { setExpressionError(""); return; }
-    try { setPreviewValue(evaluateAutomatically(nextExpression, referenceValues, { precision })); setExpressionError(""); }
-    catch (error) { setExpressionError(error?.message === "engine range exceeded" ? "Outside the current engine range" : "Check this expression"); }
+    setExpressionError("");
   }
+
+  useEffect(() => {
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    commitOnSuccessRef.current = false;
+    const source = expression.trim();
+    if (!source) { setCalculation({ status: "idle", commitOnSuccess: false, startedAt: 0 }); return undefined; }
+    const jobId = ++jobCounterRef.current;
+    setCalculation({ status: "debouncing", commitOnSuccess: false, startedAt: Date.now() });
+    const debounce = setTimeout(() => {
+      const worker = new Worker(new URL("./calculation-worker.js", import.meta.url), { type: "module" });
+      workerRef.current = worker;
+      setCalculation((current) => ({ ...current, status: "computing" }));
+      const deadline = setTimeout(() => { worker.terminate(); if (jobId === jobCounterRef.current) setCalculation((current) => ({ ...current, status: "timed-out" })); }, 10000);
+      worker.onmessage = ({ data }) => {
+        clearTimeout(deadline);
+        if (jobId !== jobCounterRef.current) return;
+        worker.terminate(); workerRef.current = null;
+        if (data.type === "error") { setExpressionError(data.message === "engine range exceeded" ? "Outside the current engine range" : "Check this expression"); setCalculation({ status: "failed", commitOnSuccess: false, startedAt: 0 }); return; }
+        const value = deserializeValue(data.value);
+        setPreviewValue(value);
+        const shouldCommit = commitOnSuccessRef.current;
+        setCalculation({ status: "completed", commitOnSuccess: false, startedAt: 0 });
+        if (shouldCommit) { setNextId((id) => { setHistory((items) => [{ id, expression: source, value }, ...items]); return id + 1; }); setToast("Saved to History"); setTimeout(() => setToast(""), 1500); }
+      };
+      worker.postMessage({ jobId, expression: source, references: workerReferences, options: { precision } });
+    }, 120);
+    return () => { clearTimeout(debounce); workerRef.current?.terminate(); };
+  }, [expression, precision, workerReferences]);
 
   function commit() {
     if (!expression.trim()) return;
+    if (["debouncing", "computing"].includes(calculation.status)) { commitOnSuccessRef.current = true; setCalculation((current) => ({ ...current, commitOnSuccess: true })); return; }
     try {
       const value = evaluateAutomatically(expression, referenceValues, { precision });
       setPreviewValue(value);
@@ -116,6 +149,14 @@ export function App() {
       setToast("Saved to History");
       setTimeout(() => setToast(""), 1500);
     } catch (error) { setExpressionError(error?.message === "engine range exceeded" ? "Outside the current engine range" : "Check this expression"); setToast("Expression not saved"); }
+  }
+
+  function cancelCalculation() {
+    jobCounterRef.current += 1;
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    commitOnSuccessRef.current = false;
+    setCalculation({ status: "cancelled", commitOnSuccess: false, startedAt: 0 });
   }
 
   function addToMemory() {
@@ -261,7 +302,7 @@ export function App() {
       <section className="calculation-stage" aria-label="Current calculation">
         <div className="stage-topline"><span>ACTIVE EXPRESSION</span><span className={expressionError ? "stage-hint expression-warning" : "stage-hint"}>{expressionError ? `⚠ ${expressionError}` : "Enter to save to History"}</span></div>
         <textarea ref={expressionRef} rows="1" aria-label="Expression" value={expression} onChange={(event) => updatePreview(event.target.value)} onInput={(event) => sizeExpression(event.currentTarget)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); commit(); } if (event.key === "Escape") { event.preventDefault(); updatePreview(""); } }} />
-        <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={preview.full} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{toast && <span className="toast" role="status">{toast}</span>}</div>
+        <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={preview.full} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{["debouncing", "computing"].includes(calculation.status) ? <span className="calculation-status" role="status">◌ Computing exact result {calculation.commitOnSuccess && "↳ History"}<button onClick={cancelCalculation}>Cancel</button></span> : toast && <span className="toast" role="status">{toast}</span>}</div>
         {inspectorOpen && <div className="inspector"><div><span>engine</span><b>{inspection.engine ?? previewValue.engineLabel ?? "placeholder"}</b></div><div><span>representation</span><b>{inspection.representation ?? "native"}</b></div><div><span>precision</span><b>{inspection.precision ?? `${precisionLabel} digits`}</b></div><div><span>status</span><b>{inspection.precisionLost ? "magnitude-only" : inspection.exactness ?? "approximate"}</b></div>{formattedDigitCount && <div className="digit-count"><span>base-{base} digits</span><b>{renderResultContent(formattedDigitCount)}</b><small>{digitCount.certainty}</small></div>}<button onClick={() => copyFull(preview.full)}>Copy full precision</button></div>}
         <div className="result-meta"><span>significand <b className="selectable-text">{preview.sign || "positive"} {preview.significand}</b></span><span>exponent <b className="selectable-text">{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"} · click result to inspect</span></div>
         <span className="sr-only" role="status" aria-live="polite">{expressionError || toast}</span>

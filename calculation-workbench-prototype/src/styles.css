@@ -63,6 +63,8 @@ textarea, .selectable-output, .selectable-text { user-select: text; -webkit-user
 .selectable-output { cursor: text; }
 button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid #829c30; outline-offset: 2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.calculation-status { display: inline-flex; align-items: center; gap: 7px; color: #71843c; font-size: 10px; white-space: nowrap; }
+.calculation-status button { border: 1px solid #cdd7a7; border-radius: 4px; background: #f7faec; color: #61762b; padding: 3px 6px; font-size: 10px; }
 .expression-tall { padding-top: 8px; padding-bottom: 8px; }
 .expression-tall .calculation-stage { padding: 8px 12px; }
 .expression-tall .calculation-stage textarea { min-height: 28px; max-height: 188px; padding-top: 6px; padding-bottom: 2px; font-size: clamp(12px, 1.25vw, 15px); line-height: 22px; }

@@ -323,11 +323,11 @@ function looksBeyondDecimal(expression) {
 export const engineRegistry = [decimalEngine, breakEternityEngine];
 
 export function evaluateAutomatically(expression, references = new Map(), options = {}) {
-  const structuralHierarchy = expression.trim().match(/^fgh([45])\(\s*(\d+)\s*\)$/i);
+  const structuralHierarchy = expression.trim().match(/^fgh([3-5])\(\s*(\d+)\s*\)$/i);
   if (structuralHierarchy) {
     const level = Number(structuralHierarchy[1]);
     const argument = structuralHierarchy[2];
-    return { kind: "hierarchy", level, argument, full: `F_${level}(${argument})`, engineId: "wainer-structural", engineLabel: "Wainer hierarchy · structural" };
+    if (level >= 4 || Number(argument) > 4) return { kind: "hierarchy", level, argument, full: `F_${level}(${argument})`, engineId: "wainer-structural", engineLabel: "Wainer hierarchy · structural" };
   }
   const ordered = looksBeyondDecimal(expression) ? [breakEternityEngine, decimalEngine] : engineRegistry;
   let lastError;
