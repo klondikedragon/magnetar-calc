@@ -47,7 +47,7 @@ export const placeholderEngine = {
   convertBase(value, base) { return this.format(value, { base }); },
 };
 
-const tokenPattern = /\s*(\d+(?:\.\d*)?(?:e[+-]?\d+)?|@history\(\d+\)|[A-Za-z]+|↑+|\^+|[()+\-*/%!×÷−πτ√])/gy;
+const tokenPattern = /\s*(\d+(?:\.\d*)?(?:e[+-]?\d+)?|@history\(\d+\)|[A-Za-z][A-Za-z0-9]*|↑+|\^+|[()+\-*/%!×÷−πτφ√])/gy;
 
 function tokenize(source) {
   const tokens = [];
@@ -60,9 +60,9 @@ function tokenize(source) {
     tokens.push(match[1]);
     index = tokenPattern.lastIndex;
   }
-  const functions = new Set(["sqrt", "sin", "cos", "tan", "ln", "log", "abs", "exp"]);
-  const endsAtom = (token) => /^\d/.test(token) || token.startsWith("@history") || ["π", "τ", "e", "pi", "tau", ")", "!"].includes(token.toLowerCase());
-  const startsAtom = (token) => /^\d/.test(token) || token.startsWith("@history") || ["π", "τ", "e", "pi", "tau", "("].includes(token.toLowerCase()) || functions.has(token.toLowerCase());
+  const functions = new Set(["sqrt", "sin", "cos", "tan", "ln", "log", "abs", "exp", "fib", "lucas", "prime", "primepi", "partition", "catalan", "bell", "triangular", "harmonic", "jacobsthal", "stirling2", "binomial", "fgh1", "fgh2", "fgh3"]);
+  const endsAtom = (token) => /^\d/.test(token) || token.startsWith("@history") || ["π", "τ", "φ", "e", "pi", "tau", "phi", ")", "!"].includes(token.toLowerCase());
+  const startsAtom = (token) => /^\d/.test(token) || token.startsWith("@history") || ["π", "τ", "φ", "e", "pi", "tau", "phi", "("].includes(token.toLowerCase()) || functions.has(token.toLowerCase());
   const expanded = [];
   tokens.forEach((token) => { if (expanded.length && endsAtom(expanded[expanded.length - 1]) && startsAtom(token)) expanded.push("*"); expanded.push(token); });
   return expanded;
@@ -78,12 +78,48 @@ function factorialValue(value, Ctor) {
 
 function engineConstant(name, Ctor) {
   if (Ctor === BreakDecimal) {
-    return new Ctor(name === "pi" ? "3.141592653589793" : name === "e" ? "2.718281828459045" : "6.283185307179586");
+    return new Ctor(name === "pi" ? "3.141592653589793" : name === "e" ? "2.718281828459045" : name === "phi" ? "1.618033988749895" : "6.283185307179586");
   }
   if (name === "pi") return Ctor.acos(new Ctor(-1));
   if (name === "e") return Ctor.exp(new Ctor(1));
+  if (name === "phi") return Ctor.sqrt(new Ctor(5)).add(1).div(2);
   if (name === "tau") return Ctor.acos(new Ctor(-1)).mul(2);
   throw new Error("unknown constant");
+}
+
+function naturalArgument(value, label, maximum = 10000) {
+  const number = value.toNumber();
+  if (!Number.isSafeInteger(number) || number < 0 || number > maximum) throw new Error(`${label} requires a non-negative integer <= ${maximum.toLocaleString()}`);
+  return number;
+}
+
+function bigIntegerSequence(name, args, Ctor) {
+  const n = naturalArgument(args[0], name, name === "prime" ? 100000 : name === "harmonic" ? 10000 : 2000);
+  const asCtor = (value) => new Ctor(value.toString());
+  if (name === "fib" || name === "lucas" || name === "jacobsthal") {
+    let a = name === "lucas" ? 2n : 0n;
+    let b = 1n;
+    for (let index = 0; index < n; index += 1) [a, b] = [b, name === "jacobsthal" ? b + (2n * a) : a + b];
+    return asCtor(a);
+  }
+  if (name === "triangular") return asCtor((BigInt(n) * BigInt(n + 1)) / 2n);
+  if (name === "catalan") { let result = 1n; for (let index = 2; index <= n; index += 1) result = (result * BigInt(n + index)) / BigInt(index); return asCtor(result); }
+  if (name === "binomial") { const k = naturalArgument(args[1], "binomial", n); if (k > n) throw new Error("binomial requires k <= n"); let result = 1n; for (let index = 1; index <= Math.min(k, n - k); index += 1) result = (result * BigInt(n - index + 1)) / BigInt(index); return asCtor(result); }
+  if (name === "stirling2") { const k = naturalArgument(args[1], "stirling2", n); const rows = Array(k + 1).fill(0n); rows[0] = 1n; for (let row = 1; row <= n; row += 1) for (let column = Math.min(row, k); column >= 1; column -= 1) rows[column] = rows[column - 1] + (BigInt(column) * rows[column]); return asCtor(rows[k]); }
+  if (name === "partition") { const values = Array(n + 1).fill(0n); values[0] = 1n; for (let part = 1; part <= n; part += 1) for (let total = part; total <= n; total += 1) values[total] += values[total - part]; return asCtor(values[n]); }
+  if (name === "bell") { let row = [1n]; for (let index = 1; index <= n; index += 1) { const next = [row.at(-1)]; for (let column = 1; column <= index; column += 1) next.push(next[column - 1] + row[column - 1]); row = next; } return asCtor(row[0]); }
+  if (name === "harmonic") { let result = new Ctor(0); for (let index = 1; index <= n; index += 1) result = result.add(new Ctor(1).div(index)); return result; }
+  if (name === "prime" || name === "primepi") { const bound = name === "prime" ? Math.max(20, Math.ceil(n * (Math.log(Math.max(n, 2)) + Math.log(Math.log(Math.max(n, 3))) + 3))) : n; const sieve = new Uint8Array(bound + 1); let count = 0; for (let candidate = 2; candidate <= bound; candidate += 1) { if (sieve[candidate]) continue; count += 1; if (name === "prime" && count === n) return new Ctor(candidate); for (let multiple = candidate * candidate; multiple <= bound; multiple += candidate) sieve[multiple] = 1; } return new Ctor(count); }
+  throw new Error("unknown sequence");
+}
+
+function wainerFinite(level, argument, Ctor) {
+  if (level === 1) return argument.mul(2);
+  if (level === 2) return argument.mul(new Ctor(2).pow(argument));
+  const iterations = naturalArgument(argument, `F${level}`, 4);
+  let result = argument;
+  for (let index = 0; index < iterations; index += 1) result = wainerFinite(level - 1, result, Ctor);
+  return result;
 }
 
 function tetrateDecimal(base, height, Ctor) {
@@ -110,20 +146,24 @@ function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, 
     if (/^\d/.test(token)) return new Ctor(token);
     if (token === "π" || token.toLowerCase() === "pi") return engineConstant("pi", Ctor);
     if (token === "τ" || token.toLowerCase() === "tau") return engineConstant("tau", Ctor);
+    if (token === "φ" || token.toLowerCase() === "phi") return engineConstant("phi", Ctor);
     if (token === "e") return engineConstant("e", Ctor);
     throw new Error("unknown value");
   };
   const primary = () => {
     const token = take();
     if (token === "(") { const result = addSub(); if (take() !== ")") throw new Error("missing parenthesis"); return result; }
-    if (/^[A-Za-z]+$/.test(token) && peek() === "(") {
+    if (/^[A-Za-z][A-Za-z0-9]*$/.test(token) && peek() === "(") {
       take();
-      const arg = addSub();
+      const args = [addSub()];
+      while (peek() === ",") { take(); args.push(addSub()); }
       if (take() !== ")") throw new Error("missing parenthesis");
       const funcs = { sqrt: "sqrt", sin: "sin", cos: "cos", tan: "tan", ln: "ln", log: "log10", abs: "abs", exp: "exp" };
       const fn = funcs[token.toLowerCase()];
-      if (!fn) throw new Error("unknown function");
-      return arg[fn]();
+      if (fn) return args[0][fn]();
+      if (["fib", "lucas", "prime", "primepi", "partition", "catalan", "bell", "triangular", "harmonic", "jacobsthal", "stirling2", "binomial"].includes(token.toLowerCase())) return bigIntegerSequence(token.toLowerCase(), args, Ctor);
+      if (/^fgh[1-3]$/.test(token.toLowerCase())) return wainerFinite(Number(token.at(-1)), args[0], Ctor);
+      throw new Error("unknown function");
     }
     return valueFor(token);
   };
@@ -283,6 +323,12 @@ function looksBeyondDecimal(expression) {
 export const engineRegistry = [decimalEngine, breakEternityEngine];
 
 export function evaluateAutomatically(expression, references = new Map(), options = {}) {
+  const structuralHierarchy = expression.trim().match(/^fgh([45])\(\s*(\d+)\s*\)$/i);
+  if (structuralHierarchy) {
+    const level = Number(structuralHierarchy[1]);
+    const argument = structuralHierarchy[2];
+    return { kind: "hierarchy", level, argument, full: `F_${level}(${argument})`, engineId: "wainer-structural", engineLabel: "Wainer hierarchy · structural" };
+  }
   const ordered = looksBeyondDecimal(expression) ? [breakEternityEngine, decimalEngine] : engineRegistry;
   let lastError;
   for (const engine of ordered) {
@@ -295,6 +341,7 @@ export function evaluateAutomatically(expression, references = new Map(), option
 }
 
 export function formatAutomatically(value, options = {}) {
+  if (value.kind === "hierarchy") return { sign: "", significand: `F${value.level}(${value.argument})`, exponent: "", text: `F${value.level}(${value.argument})`, full: value.full, hierarchy: true };
   const formatted = value.kind === "decimal.js"
     ? decimalEngine.format(value, options)
     : value.kind === "break-eternity"
@@ -307,6 +354,7 @@ export function formatAutomatically(value, options = {}) {
 }
 
 export function inspectAutomatically(value, options = {}) {
+  if (value.kind === "hierarchy") return { ...formatAutomatically(value, options), engine: "Wainer hierarchy", representation: `F${value.level} structural form`, exactness: "symbolic exact", precision: "not expanded" };
   if (value.kind === "decimal.js") return decimalEngine.inspect(value, options);
   if (value.kind === "break-eternity") return { ...breakEternityEngine.inspect(value, options), engine: value.engineLabel ?? "break_eternity.js" };
   return placeholderEngine.inspect(value, options);
