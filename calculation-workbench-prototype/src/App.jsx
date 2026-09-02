@@ -51,6 +51,7 @@ export function App() {
   const [memory, setMemory] = useState(() => storedWorkspace?.memory ? { ...storedWorkspace.memory, value: deserializeValue(storedWorkspace.memory.value) } : null);
   const [previewValue, setPreviewValue] = useState(() => deserializeValue(storedWorkspace?.previewValue) ?? initialHistory[0].value);
   const [calculation, setCalculation] = useState({ status: "idle", commitOnSuccess: false, startedAt: 0 });
+  const [showCalculating, setShowCalculating] = useState(false);
   const [toast, setToast] = useState("");
   const [expressionError, setExpressionError] = useState("");
   const [memoryOpen, setMemoryOpen] = useState(false);
@@ -137,6 +138,11 @@ export function App() {
     }, 120);
     return () => { clearTimeout(debounce); workerRef.current?.terminate(); };
   }, [expression, precision, workerReferences]);
+  useEffect(() => {
+    if (!["debouncing", "computing"].includes(calculation.status)) { setShowCalculating(false); return undefined; }
+    const timer = setTimeout(() => setShowCalculating(true), 300);
+    return () => clearTimeout(timer);
+  }, [calculation.status]);
 
   function commit() {
     if (!expression.trim()) return;
@@ -302,7 +308,7 @@ export function App() {
       <section className="calculation-stage" aria-label="Current calculation">
         <div className="stage-topline"><span>ACTIVE EXPRESSION</span><span className={expressionError ? "stage-hint expression-warning" : "stage-hint"}>{expressionError ? `⚠ ${expressionError}` : "Enter to save to History"}</span></div>
         <textarea ref={expressionRef} rows="1" aria-label="Expression" value={expression} onChange={(event) => updatePreview(event.target.value)} onInput={(event) => sizeExpression(event.currentTarget)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); commit(); } if (event.key === "Escape") { event.preventDefault(); updatePreview(""); } }} />
-        <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={preview.full} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{["debouncing", "computing"].includes(calculation.status) ? <span className="calculation-status" role="status">◌ Computing exact result {calculation.commitOnSuccess && "↳ History"}<button onClick={cancelCalculation}>Cancel</button></span> : toast && <span className="toast" role="status">{toast}</span>}</div>
+        <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={preview.full} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{(showCalculating || calculation.commitOnSuccess) ? <span className="calculation-status" role="status">◌ Computing exact result {calculation.commitOnSuccess && "↳ History"}<button onClick={cancelCalculation}>Cancel</button></span> : calculation.status === "timed-out" ? <span className="toast">Exact calculation reached its time budget</span> : toast && <span className="toast" role="status">{toast}</span>}</div>
         {inspectorOpen && <div className="inspector"><div><span>engine</span><b>{inspection.engine ?? previewValue.engineLabel ?? "placeholder"}</b></div><div><span>representation</span><b>{inspection.representation ?? "native"}</b></div><div><span>precision</span><b>{inspection.precision ?? `${precisionLabel} digits`}</b></div><div><span>status</span><b>{inspection.precisionLost ? "magnitude-only" : inspection.exactness ?? "approximate"}</b></div>{formattedDigitCount && <div className="digit-count"><span>base-{base} digits</span><b>{renderResultContent(formattedDigitCount)}</b><small>{digitCount.certainty}</small></div>}<button onClick={() => copyFull(preview.full)}>Copy full precision</button></div>}
         <div className="result-meta"><span>significand <b className="selectable-text">{preview.sign || "positive"} {preview.significand}</b></span><span>exponent <b className="selectable-text">{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"} · click result to inspect</span></div>
         <span className="sr-only" role="status" aria-live="polite">{expressionError || toast}</span>
