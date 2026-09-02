@@ -65,6 +65,7 @@ export function App() {
   const jobCounterRef = useRef(0);
   const workerRef = useRef(null);
   const commitOnSuccessRef = useRef(false);
+  const completedExpressionRef = useRef("");
   const focusExpression = () => requestAnimationFrame(() => expressionRef.current?.focus());
   function sizeExpression(input = expressionRef.current) {
     if (!input) return;
@@ -106,6 +107,7 @@ export function App() {
   const workerReferences = useMemo(() => history.map((item) => [`@history(${item.id})`, serializeValue(item.value)]), [history]);
 
   function updatePreview(nextExpression) {
+    commitOnSuccessRef.current = false;
     setExpression(nextExpression);
     setExpressionError("");
   }
@@ -113,11 +115,10 @@ export function App() {
   useEffect(() => {
     workerRef.current?.terminate();
     workerRef.current = null;
-    commitOnSuccessRef.current = false;
     const source = expression.trim();
     if (!source) { setCalculation({ status: "idle", commitOnSuccess: false, startedAt: 0 }); return undefined; }
     const jobId = ++jobCounterRef.current;
-    setCalculation({ status: "debouncing", commitOnSuccess: false, startedAt: Date.now() });
+    setCalculation({ status: "debouncing", commitOnSuccess: commitOnSuccessRef.current, startedAt: Date.now() });
     const debounce = setTimeout(() => {
       const worker = new Worker(new URL("./calculation-worker.js", import.meta.url), { type: "module" });
       workerRef.current = worker;
@@ -130,9 +131,10 @@ export function App() {
         if (data.type === "error") { setExpressionError(data.message === "engine range exceeded" ? "Outside the current engine range" : "Check this expression"); setCalculation({ status: "failed", commitOnSuccess: false, startedAt: 0 }); return; }
         const value = deserializeValue(data.value);
         setPreviewValue(value);
+        completedExpressionRef.current = source;
         const shouldCommit = commitOnSuccessRef.current;
         setCalculation({ status: "completed", commitOnSuccess: false, startedAt: 0 });
-        if (shouldCommit) { setNextId((id) => { setHistory((items) => [{ id, expression: source, value }, ...items]); return id + 1; }); setToast("Saved to History"); setTimeout(() => setToast(""), 1500); }
+        if (shouldCommit) { commitOnSuccessRef.current = false; setNextId((id) => { setHistory((items) => [{ id, expression: source, value }, ...items]); return id + 1; }); setToast("Saved to History"); setTimeout(() => setToast(""), 1500); }
       };
       worker.postMessage({ jobId, expression: source, references: workerReferences, options: { precision } });
     }, 120);
@@ -146,7 +148,7 @@ export function App() {
 
   function commit() {
     if (!expression.trim()) return;
-    if (["debouncing", "computing"].includes(calculation.status)) { commitOnSuccessRef.current = true; setCalculation((current) => ({ ...current, commitOnSuccess: true })); return; }
+    if (completedExpressionRef.current !== expression) { commitOnSuccessRef.current = true; setCalculation((current) => ({ ...current, commitOnSuccess: true })); return; }
     try {
       const value = evaluateAutomatically(expression, referenceValues, { precision });
       setPreviewValue(value);
