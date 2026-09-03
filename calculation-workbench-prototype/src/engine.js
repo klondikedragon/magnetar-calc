@@ -487,6 +487,12 @@ export function analyzePrimality(value) {
   return { kind: prime ? "prime" : "composite", certainty: prime ? "probable" : "verified", method: prime ? "16-round Miller–Rabin" : "Miller–Rabin witness" };
 }
 
+export function evaluateWithAnalysis(expression, references = new Map(), options = {}) {
+  const value = evaluateAutomatically(expression, references, options);
+  const primality = analyzePrimality(value);
+  return primality ? { ...value, primality } : value;
+}
+
 // Browser storage holds plain JSON, so preserve the engine value as a string and
 // rebuild the appropriate numeric object when a calculator session is restored.
 export function serializeValue(value) {

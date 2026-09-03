@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { analyzePrimality, evaluateAutomatically } from "../src/engine.js";
+import { analyzePrimality, evaluateAutomatically, evaluateWithAnalysis } from "../src/engine.js";
 
 test("verifies prime and composite exact integers within the deterministic range", () => {
   const prime = analyzePrimality(evaluateAutomatically("97"));
@@ -15,6 +15,12 @@ test("uses a qualified result above the deterministic range", () => {
   const mersenne127 = analyzePrimality(evaluateAutomatically("2^127-1"));
   assert.deepEqual(mersenne127?.kind, "prime");
   assert.deepEqual(mersenne127?.certainty, "probable");
+});
+
+test("publishes a calculated exact integer with its classification", () => {
+  const value = evaluateWithAnalysis("97");
+  assert.equal(value.primality?.kind, "prime");
+  assert.equal(value.primality?.certainty, "verified");
 });
 
 test("does not classify Decimal results lacking an independent integer reconstruction", () => {

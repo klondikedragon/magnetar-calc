@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { deserializeValue, digitCountAutomatically, evaluateAutomatically, formatAutomatically, inspectAutomatically, serializeValue } from "./engine";
+import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, formatAutomatically, inspectAutomatically, serializeValue } from "./engine";
 
 const initialHistory = [
   { id: 3, expression: "√(2) + π / 7", value: { kind: "number", number: 1.862012077376797, full: "1.862012077376796985004668721836731291106586140266324758279159345760390983" } },
@@ -64,7 +64,6 @@ export function App() {
   const priorFocusRef = useRef(null);
   const jobCounterRef = useRef(0);
   const workerRef = useRef(null);
-  const primalityWorkerRef = useRef(null);
   const commitOnSuccessRef = useRef(false);
   const completedExpressionRef = useRef("");
   const focusExpression = () => requestAnimationFrame(() => expressionRef.current?.focus());
@@ -145,25 +144,6 @@ export function App() {
     return () => { clearTimeout(debounce); workerRef.current?.terminate(); };
   }, [expression, precision, workerReferences]);
   useEffect(() => {
-    primalityWorkerRef.current?.terminate();
-    primalityWorkerRef.current = null;
-    if (!previewValue?.exactInteger || previewValue.primality) return undefined;
-    const exactInteger = previewValue.exactInteger;
-    const worker = new Worker(new URL("./primality-worker.js", import.meta.url), { type: "module" });
-    primalityWorkerRef.current = worker;
-    worker.onmessage = ({ data }) => {
-      if (data.type !== "result" || data.key !== exactInteger || !data.primality) return;
-      const annotate = (value) => value?.exactInteger === exactInteger ? { ...value, primality: data.primality } : value;
-      setPreviewValue(annotate);
-      setHistory((items) => items.map((item) => ({ ...item, value: annotate(item.value) })));
-      setMemory((current) => current ? { ...current, value: annotate(current.value) } : current);
-      worker.terminate();
-      primalityWorkerRef.current = null;
-    };
-    worker.postMessage({ value: serializeValue(previewValue) });
-    return () => worker.terminate();
-  }, [previewValue]);
-  useEffect(() => {
     if (!["debouncing", "computing"].includes(calculation.status)) { setShowCalculating(false); return undefined; }
     const timer = setTimeout(() => setShowCalculating(true), 300);
     return () => clearTimeout(timer);
@@ -173,8 +153,7 @@ export function App() {
     if (!expression.trim()) return;
     if (completedExpressionRef.current !== expression) { commitOnSuccessRef.current = true; setCalculation((current) => ({ ...current, commitOnSuccess: true })); return; }
     try {
-      const value = evaluateAutomatically(expression, referenceValues, { precision });
-      setPreviewValue(value);
+      const value = previewValue;
       setHistory((items) => [{ id: nextId, expression, value }, ...items]);
       setNextId((id) => id + 1);
       setToast("Saved to History");
@@ -200,7 +179,7 @@ export function App() {
     if (expressionError) { showMemoryFeedback("Fix expression before adding to memory"); return; }
     try {
       const nextExpression = memory?.expression ? `(${memory.expression}) + (${expression})` : expression;
-      const nextValue = evaluateAutomatically(nextExpression, referenceValues, { precision });
+      const nextValue = evaluateWithAnalysis(nextExpression, referenceValues, { precision });
       setMemory({ expression: nextExpression, value: nextValue });
       showMemoryFeedback("Added to memory");
     } catch { showMemoryFeedback("Memory could not be updated"); }
