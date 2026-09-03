@@ -79,6 +79,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .prime-badge { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; margin-left: 6px; min-width: 14px; height: 14px; padding: 0 3px; border: 1px solid #9db35a; border-radius: 999px; color: #5b7024; background: #f6fae9; font: 700 8px/1 "DM Mono", monospace; vertical-align: middle; }
 .prime-badge.probable { border-color: #c6ad72; color: #8a6e2b; background: #fff9e8; }
 .inspector b small { color: #778184; font: 9px "DM Sans", sans-serif; }
+.history-actions { display: inline-flex; align-items: center; gap: 7px; }.delete-history { border: 0; border-radius: 3px; background: transparent; color: #9a8171; font: 15px/1 "DM Sans", sans-serif; padding: 0 1px; }.delete-history:hover { color: #8b4e35; background: #fff2eb; }
 .expression-tall .control label { margin-bottom: 3px; }
 .expression-tall .control-label-row label { margin-bottom: 3px; }
 .expression-tall .segmented button, .expression-tall .notation select { padding-top: 4px; padding-bottom: 4px; }
