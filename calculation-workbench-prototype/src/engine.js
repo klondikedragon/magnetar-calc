@@ -301,6 +301,7 @@ function formatDecimal(value, base = 10, precision = 48, notation = "auto") {
   if (base === 16) return { sign, significand: magnitude.toHex(Math.min(precision, 1000)), exponent: "", text: `${sign}${magnitude.toHex(Math.min(precision, 1000))}`, full: `${sign}${magnitude.toString()}` };
   const digits = Math.max(1, Math.min(precision, 1000));
   const rounded = magnitude.toSignificantDigits(digits);
+  const displayWasRounded = magnitude.sd() > digits;
   const showDecimal = notation === "decimal" && decimalExpandedLength(rounded) <= maximumDecimalDisplayLength;
   const raw = notation === "scientific" || notation === "engineering" ? rounded.toExponential() : showDecimal ? rounded.toFixed() : rounded.toString();
   let [coefficient, exponent = ""] = raw.split("e");
@@ -308,8 +309,11 @@ function formatDecimal(value, base = 10, precision = 48, notation = "auto") {
   const cleanCoefficient = coefficient.replace(/(\.[0-9]*?)0+$/, "$1").replace(/\.$/, "");
   const numericExponent = Number(exponent || 0);
   if ((notation === "auto" && numericExponent >= -6 && numericExponent <= 15) || showDecimal) {
-    const plain = rounded.toFixed().replace(/(\.[0-9]*?)0+$/, "$1").replace(/\.$/, "");
-    return { sign, significand: plain, exponent: "", text: `${sign}${plain}`, full: `${sign}${magnitude.toString()}` };
+    let plain = rounded.toFixed().replace(/(\.[0-9]*?)0+$/, "$1").replace(/\.$/, "");
+    // A display precision cap must not manufacture a long tail of apparent
+    // significant zeroes.  Keep the meaningful prefix and mark the omission.
+    if (displayWasRounded && !plain.includes(".")) plain = `${plain.replace(/0+$/, "")}…`;
+    return { sign, significand: plain, exponent: "", text: `${sign}${plain}`, full: `${sign}${magnitude.toString()}`, truncated: displayWasRounded };
   }
   if (notation === "engineering" && exponent) {
     const parts = scientificParts(magnitude, precision, true);
@@ -328,7 +332,7 @@ export const decimalEngine = {
     return evaluateBreak(expression, references, Ctor, "decimal.js");
   },
   format(value, options = {}) { return value.kind === "decimal.js" ? formatDecimal(value, options.base, options.precision, options.notation) : breakEternityEngine.format(value, options); },
-  inspect(value, options = {}) { return { ...this.format(value, options), engine: "decimal.js", representation: "arbitrary-precision decimal", exactness: "rounded to configured precision", precision: `${options.precision ?? 48} significant digits` }; },
+  inspect(value, options = {}) { return { ...this.format(value, options), engine: "decimal.js", representation: "arbitrary-precision decimal", exactness: value.exactInteger ? "exact integer" : "rounded to 1,000 significant digits", precision: "1,000 significant digits internal" }; },
   digitCount(value, base = 10) {
     const absolute = value.decimal.abs();
     if (absolute.isZero() || absolute.lt(1)) return { value: { kind: "decimal.js", decimal: new Decimal(1), full: "1" }, certainty: "exact" };
