@@ -52,6 +52,7 @@ const maximumExpressionLength = 12000;
 const maximumTokenCount = 2400;
 const maximumTetrationHeight = 10000000;
 const maximumDecimalDisplayLength = 1000;
+export const exportPrecision = 10_000_000;
 
 function tokenize(source) {
   if (source.length > maximumExpressionLength) throw new Error("expression is too long");
@@ -328,7 +329,10 @@ export const decimalEngine = {
   capabilities: { maxExponent: 9e15, precision: "configurable", layered: false, hyper: false },
   parse(expression) { return { expression, kind: "decimal.js" }; },
   evaluate(expression, references = new Map(), options = {}) {
-    const Ctor = Decimal.clone({ precision: 1000, maxE: 9e15, minE: -9e15 });
+    const calculationPrecision = Number.isInteger(options.calculationPrecision)
+      ? Math.max(1, Math.min(options.calculationPrecision, 1e9))
+      : 1000;
+    const Ctor = Decimal.clone({ precision: calculationPrecision, maxE: 9e15, minE: -9e15 });
     return evaluateBreak(expression, references, Ctor, "decimal.js");
   },
   format(value, options = {}) { return value.kind === "decimal.js" ? formatDecimal(value, options.base, options.precision, options.notation) : breakEternityEngine.format(value, options); },
@@ -439,7 +443,7 @@ export function evaluateAutomatically(expression, references = new Map(), option
     const argument = structuralHierarchy[2];
     if (level >= 4 || Number(argument) > 4) return { kind: "hierarchy", level, argument, full: `F_${level}(${argument})`, engineId: "wainer-structural", engineLabel: "Wainer hierarchy · structural" };
   }
-  const ordered = looksBeyondDecimal(expression) ? [breakEternityEngine, decimalEngine] : engineRegistry;
+  const ordered = options.forceDecimal ? [decimalEngine] : looksBeyondDecimal(expression) ? [breakEternityEngine, decimalEngine] : engineRegistry;
   let lastError;
   for (const engine of ordered) {
     try {
@@ -468,6 +472,28 @@ export function formatAutomatically(value, options = {}) {
 // ceiling while preserving the user's selected base and notation.
 export function formatForCopy(value, options = {}) {
   return formatAutomatically(value, { ...options, precision: 1000, groupDigits: options.groupDigits ?? false }).text;
+}
+
+// Export is deliberately separate from normal rendering: it may format a
+// worker-produced 10M-digit Decimal without raising the on-screen ceiling.
+export function formatForHighPrecisionExport(value, options = {}) {
+  const maximumLength = options.maximumLength ?? exportPrecision;
+  if (value?.kind !== "decimal.js" || options.base !== 10) return formatForCopy(value, options);
+  const decimal = value.decimal;
+  const magnitude = decimal.abs();
+  if (magnitude.isZero()) return "0";
+  const rounded = magnitude.toSignificantDigits(Math.min(exportPrecision, magnitude.sd()));
+  let text;
+  if (decimalExpandedLength(rounded) <= maximumLength) {
+    text = rounded.toFixed().replace(/(\.[0-9]*?)0+$/, "$1").replace(/\.$/, "");
+    if (options.groupDigits) {
+      const [whole, fraction] = text.split(".");
+      text = `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${fraction ? `.${fraction}` : ""}`;
+    }
+  } else {
+    text = rounded.toExponential().replace(/e\+/, "e");
+  }
+  return `${decimal.isNegative() ? "-" : ""}${text}`;
 }
 
 export function inspectAutomatically(value, options = {}) {

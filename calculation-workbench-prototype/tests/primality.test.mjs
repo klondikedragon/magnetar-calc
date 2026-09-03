@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import BreakDecimal from "break_eternity.js";
-import { analyzePrimality, evaluateAutomatically, evaluateWithAnalysis, formatAutomatically, formatForCopy, inspectAutomatically } from "../src/engine.js";
+import { analyzePrimality, evaluateAutomatically, evaluateWithAnalysis, formatAutomatically, formatForCopy, formatForHighPrecisionExport, inspectAutomatically } from "../src/engine.js";
 
 test("verifies prime and composite exact integers within the deterministic range", () => {
   const prime = analyzePrimality(evaluateAutomatically("97"));
@@ -66,4 +66,13 @@ test("display precision does not change Decimal engine precision", () => {
   assert.equal(displayed.truncated, true);
   assert.match(displayed.significand, /…$/);
   assert.equal(inspectAutomatically(value).precision, "1,000 significant digits internal");
+});
+
+test("high-precision export formats all recomputed Decimal digits without changing defaults", () => {
+  const value = evaluateAutomatically("1 / 7", new Map(), { calculationPrecision: 1500, forceDecimal: true });
+  const exported = formatForHighPrecisionExport(value, { base: 10, maximumLength: 2000 });
+  assert.equal(value.decimal.sd(), 1500);
+  assert.equal(exported.length, 1502);
+  assert.match(exported, /^0\.142857142857/);
+  assert.equal(evaluateAutomatically("1 / 7").decimal.sd(), 1000);
 });
