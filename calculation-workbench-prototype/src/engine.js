@@ -48,8 +48,13 @@ export const placeholderEngine = {
 };
 
 const tokenPattern = /\s*(\d+(?:\.\d*)?(?:e[+-]?\d+)?|@history\(\d+\)|[A-Za-z][A-Za-z0-9]*|↑+|\^+|[()+\-*/%!×÷−πτφ√])/gy;
+const maximumExpressionLength = 12000;
+const maximumTokenCount = 2400;
+const maximumTetrationHeight = 10000000;
+const maximumDecimalDisplayLength = 1000;
 
 function tokenize(source) {
+  if (source.length > maximumExpressionLength) throw new Error("expression is too long");
   const tokens = [];
   let index = 0;
   while (index < source.length) {
@@ -58,6 +63,7 @@ function tokenize(source) {
     const match = tokenPattern.exec(source);
     if (!match) throw new Error("unsupported expression");
     tokens.push(match[1]);
+    if (tokens.length > maximumTokenCount) throw new Error("expression is too complex");
     index = tokenPattern.lastIndex;
   }
   const functions = new Set(["sqrt", "sin", "cos", "tan", "ln", "log", "abs", "exp", "fib", "lucas", "prime", "primepi", "partition", "catalan", "bell", "triangular", "harmonic", "jacobsthal", "stirling2", "binomial", "fgh1", "fgh2", "fgh3"]);
@@ -132,6 +138,15 @@ function tetrateDecimal(base, height, Ctor) {
   return result;
 }
 
+function tetrateBreak(base, height) {
+  const numericHeight = height.toNumber();
+  const integralHeight = Math.round(numericHeight);
+  const roundingTolerance = Math.max(1e-9, Math.abs(numericHeight) * 1e-12);
+  if (!Number.isSafeInteger(integralHeight) || integralHeight < 0 || Math.abs(numericHeight - integralHeight) > roundingTolerance) throw new Error("tetration height must be a non-negative safe integer");
+  if (integralHeight > maximumTetrationHeight) throw new Error("tetration height exceeds the current safety budget");
+  return base.tetrate(integralHeight);
+}
+
 function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, kind = "break-eternity") {
   const tokens = tokenize(expression);
   let position = 0;
@@ -168,7 +183,7 @@ function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, 
     return valueFor(token);
   };
   const unary = () => { if (peek() === "−" || peek() === "-") { take(); return unary().neg(); } if (peek() === "+") { take(); return unary(); } if (peek() === "√") { take(); return unary().sqrt(); } let result = primary(); while (peek() === "!") { take(); result = factorialValue(result, Ctor); } return result; };
-  const power = () => { const left = unary(); if (peek() === "^" || peek() === "↑") { take(); return left.pow(power()); } if (typeof peek() === "string" && /^(?:↑{2,}|\^{2,})$/.test(peek())) { const arrows = take(); const height = power(); if (arrows.length === 2) return typeof left.tetrate === "function" ? left.tetrate(height.toNumber()) : tetrateDecimal(left, height, Ctor); throw new Error("hyper-operation not available in this backend"); } return left; };
+  const power = () => { const left = unary(); if (peek() === "^" || peek() === "↑") { take(); return left.pow(power()); } if (typeof peek() === "string" && /^(?:↑{2,}|\^{2,})$/.test(peek())) { const arrows = take(); const height = power(); if (arrows.length === 2) return Ctor === BreakDecimal ? tetrateBreak(left, height) : tetrateDecimal(left, height, Ctor); throw new Error("hyper-operation not available in this backend"); } return left; };
   const mulDiv = () => { let result = power(); while (["*", "×", "/", "÷", "%", "mod"].includes(peek())) { const op = take(); const right = power(); result = op === "/" || op === "÷" ? result.div(right) : op === "%" || op === "mod" ? result.mod(right) : result.mul(right); } return result; };
   function addSub() { let result = mulDiv(); while (["+", "−", "-"].includes(peek())) { const op = take(); const right = mulDiv(); result = op === "+" ? result.add(right) : result.sub(right); } return result; }
   let result = addSub();
@@ -238,11 +253,12 @@ function formatBreak(value, base = 10, precision = 48, notation = "scientific") 
     return { sign, significand: "1", exponent, text: `${sign}1 × ${base}^${exponent}`, full };
   }
   const arrowCount = decimal.layer;
-  const arrows = "↑".repeat(Math.min(arrowCount, 20));
-  const dense = arrowCount > 20;
+  const dense = arrowCount > 3;
   const magnitude = String(decimal.mag);
+  // Rendering is a separate safety boundary.  Never build an expanded tower
+  // merely to discard it for compact notation: layer can be astronomically big.
   let expanded = magnitude;
-  for (let index = 0; index < arrowCount; index += 1) expanded = `10^(${expanded})`;
+  if (!dense) for (let index = 0; index < arrowCount; index += 1) expanded = `10^(${expanded})`;
   const collapsed = `10⟦${arrowCount}⟧${magnitude}`;
   return { sign, significand: dense ? collapsed : expanded, exponent: `layer ${arrowCount}`, tower: true, towerDepth: arrowCount, towerMagnitude: magnitude, towerExpanded: !dense && arrowCount <= 3, arrowCount, denseArrowCount: dense ? arrowCount : null, layer: arrowCount, magnitude, precisionLost: true, text: `${sign}${dense ? `10⟦${arrowCount}⟧^${magnitude}` : expanded}`, full };
 }
@@ -267,6 +283,15 @@ export const breakEternityEngine = {
   convertBase(value, base) { return this.format(value, { base }); },
 };
 
+function decimalExpandedLength(value) {
+  const digits = value.sd();
+  if (value.e >= 0) {
+    const wholeDigits = value.e + 1;
+    return Math.max(wholeDigits, digits) + (digits > wholeDigits ? 1 : 0);
+  }
+  return 2 + (-value.e - 1) + digits;
+}
+
 function formatDecimal(value, base = 10, precision = 48, notation = "auto") {
   const decimal = value.decimal;
   const sign = decimal.isNegative() ? "−" : "";
@@ -276,12 +301,13 @@ function formatDecimal(value, base = 10, precision = 48, notation = "auto") {
   if (base === 16) return { sign, significand: magnitude.toHex(Math.min(precision, 1000)), exponent: "", text: `${sign}${magnitude.toHex(Math.min(precision, 1000))}`, full: `${sign}${magnitude.toString()}` };
   const digits = Math.max(1, Math.min(precision, 1000));
   const rounded = magnitude.toSignificantDigits(digits);
-  const raw = notation === "scientific" || notation === "engineering" ? rounded.toExponential() : rounded.toString();
+  const showDecimal = notation === "decimal" && decimalExpandedLength(rounded) <= maximumDecimalDisplayLength;
+  const raw = notation === "scientific" || notation === "engineering" ? rounded.toExponential() : showDecimal ? rounded.toFixed() : rounded.toString();
   let [coefficient, exponent = ""] = raw.split("e");
   exponent = exponent.replace(/^\+/, "");
   const cleanCoefficient = coefficient.replace(/(\.[0-9]*?)0+$/, "$1").replace(/\.$/, "");
   const numericExponent = Number(exponent || 0);
-  if (notation === "auto" && numericExponent >= -6 && numericExponent <= 15) {
+  if ((notation === "auto" && numericExponent >= -6 && numericExponent <= 15) || showDecimal) {
     const plain = rounded.toFixed().replace(/(\.[0-9]*?)0+$/, "$1").replace(/\.$/, "");
     return { sign, significand: plain, exponent: "", text: `${sign}${plain}`, full: `${sign}${magnitude.toString()}` };
   }
