@@ -459,6 +459,13 @@ export function formatAutomatically(value, options = {}) {
   return { ...formatted, significand: grouped, text: `${formatted.sign}${grouped}` };
 }
 
+// Clipboard output is a deliberate representation choice, rather than an
+// accidental Decimal.js toString() serialization.  Use the engine/display
+// ceiling while preserving the user's selected base and notation.
+export function formatForCopy(value, options = {}) {
+  return formatAutomatically(value, { ...options, precision: 1000, groupDigits: options.groupDigits ?? false }).text;
+}
+
 export function inspectAutomatically(value, options = {}) {
   if (value.kind === "hierarchy") return { ...formatAutomatically(value, options), engine: "Wainer hierarchy", representation: `F${value.level} structural form`, exactness: "symbolic exact", precision: "not expanded" };
   if (value.kind === "decimal.js") return decimalEngine.inspect(value, options);

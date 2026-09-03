@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import BreakDecimal from "break_eternity.js";
-import { analyzePrimality, evaluateAutomatically, evaluateWithAnalysis, formatAutomatically } from "../src/engine.js";
+import { analyzePrimality, evaluateAutomatically, evaluateWithAnalysis, formatAutomatically, formatForCopy } from "../src/engine.js";
 
 test("verifies prime and composite exact integers within the deterministic range", () => {
   const prime = analyzePrimality(evaluateAutomatically("97"));
@@ -49,4 +49,12 @@ test("decimal notation keeps an eligible large Decimal value expanded", () => {
 test("decimal notation falls back to scientific form beyond the display envelope", () => {
   const formatted = formatAutomatically(evaluateAutomatically("10^1000"), { notation: "decimal", precision: 1000 });
   assert.equal(formatted.exponent, "1000");
+});
+
+test("clipboard formatting honors Decimal notation at full engine precision", () => {
+  const value = evaluateAutomatically("(2005956546822746114^2 - 2)^2 - 2");
+  const copied = formatForCopy(value, { base: 10, notation: "decimal" });
+  assert.equal(copied, "16191462721115671781777559070120513664958590125499158514329308740975788034");
+  const grouped = formatForCopy(value, { base: 10, notation: "decimal", groupDigits: true });
+  assert.equal(grouped, "16,191,462,721,115,671,781,777,559,070,120,513,664,958,590,125,499,158,514,329,308,740,975,788,034");
 });
