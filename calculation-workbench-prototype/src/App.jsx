@@ -105,7 +105,10 @@ export function App() {
   const formattedDigitCount = digitCount?.value ? formatAutomatically(digitCount.value, { base, precision, notation, groupDigits }) : null;
 
   const referenceValues = useMemo(() => new Map(history.map((item) => [`@history(${item.id})`, item.value.kind === "number" ? String(item.value.number) : item.value.decimal?.toString?.() ?? "1e308"])), [history]);
-  const workerReferences = useMemo(() => history.map((item) => [`@history(${item.id})`, serializeValue(item.value)]), [history]);
+  // Primality annotations are presentation metadata, not calculation inputs.
+  // Keep the calculation worker stable when an asynchronous badge arrives.
+  const historyReferenceKey = history.map((item) => `${item.id}:${item.value.kind}:${item.value.decimal?.toString?.() ?? item.value.number ?? item.value.full}:${item.value.exactInteger ?? ""}`).join("|");
+  const workerReferences = useMemo(() => history.map((item) => [`@history(${item.id})`, serializeValue(item.value)]), [historyReferenceKey]);
 
   function updatePreview(nextExpression) {
     commitOnSuccessRef.current = false;
