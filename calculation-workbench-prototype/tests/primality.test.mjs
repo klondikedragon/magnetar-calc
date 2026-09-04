@@ -65,7 +65,7 @@ test("display precision does not change Decimal engine precision", () => {
   assert.equal(value.decimal.sd(), 74);
   assert.equal(displayed.truncated, true);
   assert.match(displayed.significand, /…$/);
-  assert.equal(inspectAutomatically(value).precision, "10,000 significant digits internal");
+  assert.equal(inspectAutomatically(value).precision, "1,000 significant digits internal");
 });
 
 test("high-precision export formats all recomputed Decimal digits without changing defaults", () => {
@@ -74,7 +74,7 @@ test("high-precision export formats all recomputed Decimal digits without changi
   assert.equal(value.decimal.sd(), 1500);
   assert.equal(exported.length, 1502);
   assert.match(exported, /^0\.142857142857/);
-  assert.equal(evaluateAutomatically("1 / 7").decimal.sd(), 10000);
+  assert.equal(evaluateAutomatically("1 / 7").decimal.sd(), 1000);
 });
 
 test("zero display precision rounds to an integer without switching to magnitude-only notation", () => {

@@ -57,8 +57,10 @@ const tokenPattern = /\s*(\d+(?:\.\d*)?(?:e[+-]?\d+)?|@history\(\d+\)|[A-Za-z][A
 const maximumExpressionLength = 12000;
 const maximumTokenCount = 2400;
 const maximumTetrationHeight = 10000000;
-export const defaultCalculationPrecision = 10_000;
-const maximumDecimalDisplayLength = defaultCalculationPrecision;
+export const defaultCalculationPrecision = 1_000;
+// The view can request a wider display range, but normal calculations never
+// manufacture digits beyond the stored 1,000-digit Decimal value.
+const maximumDecimalDisplayLength = 10_000;
 export const exportPrecision = 10_000_000;
 
 function tokenize(source) {
