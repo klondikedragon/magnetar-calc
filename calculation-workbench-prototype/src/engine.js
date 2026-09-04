@@ -307,39 +307,31 @@ function formatDecimal(value, base = 10, precision = 48, notation = "auto") {
   const sign = decimal.isNegative() ? "−" : "";
   const magnitude = decimal.abs();
   if (magnitude.isZero()) return { sign: "", significand: "0", exponent: "", text: "0", full: "0" };
-  if (base === 2) return { sign, significand: magnitude.toBinary(Math.min(Math.max(1, precision), defaultCalculationPrecision)), exponent: "", text: `${sign}${magnitude.toBinary(Math.min(Math.max(1, precision), defaultCalculationPrecision))}`, full: `${sign}${magnitude.toString()}` };
-  if (base === 16) return { sign, significand: magnitude.toHex(Math.min(Math.max(1, precision), defaultCalculationPrecision)), exponent: "", text: `${sign}${magnitude.toHex(Math.min(Math.max(1, precision), defaultCalculationPrecision))}`, full: `${sign}${magnitude.toString()}` };
-  if (precision === 0) {
-    const rounded = magnitude.toDecimalPlaces(0);
-    const raw = notation === "scientific" || notation === "engineering" ? rounded.toExponential(0) : notation === "decimal" && decimalExpandedLength(rounded) <= maximumDecimalDisplayLength ? rounded.toFixed(0) : rounded.toString();
-    let [coefficient, exponent = ""] = raw.split("e");
-    exponent = exponent.replace(/^\+/, "");
-    const numericExponent = Number(exponent || 0);
-    if (notation === "auto" && numericExponent >= -6 && numericExponent <= 15) coefficient = rounded.toFixed(0);
-    if (notation === "engineering" && exponent) {
-      const parts = engineeringFromParts(coefficient, exponent);
-      return { sign, significand: parts.coefficient, exponent: parts.exponent, text: `${sign}${parts.coefficient} × 10^${parts.exponent}`, full: `${sign}${magnitude.toString()}` };
-    }
-    return { sign, significand: coefficient, exponent, text: `${sign}${coefficient}${exponent ? ` × 10^${exponent}` : ""}`, full: `${sign}${magnitude.toString()}` };
+  // Decimal.isInteger alone may merely reflect a rounded value. Only values
+  // independently rebuilt as an integer get Auto's full-integer treatment.
+  if (value.exactInteger && notation === "auto") {
+    const integer = BigInt(value.exactInteger);
+    const significand = base === 10 ? integer.toString().replace("-", "") : (integer < 0n ? -integer : integer).toString(base).toUpperCase();
+    return { sign, significand, exponent: "", text: `${sign}${significand}`, full: `${sign}${significand}`, exactIntegerDisplay: true };
   }
-  const digits = Math.max(1, Math.min(precision, defaultCalculationPrecision));
-  const rounded = magnitude.toSignificantDigits(digits);
-  const displayWasRounded = magnitude.sd() > digits;
-  const showDecimal = notation === "decimal" && decimalExpandedLength(rounded) <= maximumDecimalDisplayLength;
-  const raw = notation === "scientific" || notation === "engineering" ? rounded.toExponential() : showDecimal ? rounded.toFixed() : rounded.toString();
+  if (base === 2 || base === 16) {
+    const radixIntegerDigits = Math.max(0, Number(magnitude.log(base).floor().toString()) + 1);
+    const digits = Math.min(defaultCalculationPrecision, Math.max(1, radixIntegerDigits + Math.max(0, precision)));
+    const significand = base === 2 ? magnitude.toBinary(digits) : magnitude.toHex(digits);
+    return { sign, significand, exponent: "", text: `${sign}${significand}`, full: `${sign}${magnitude.toString()}` };
+  }
+  const decimalPlaces = Math.max(0, Math.min(precision, defaultCalculationPrecision));
+  const fixedRounded = magnitude.toDecimalPlaces(decimalPlaces);
+  const showDecimal = notation === "decimal" && decimalExpandedLength(fixedRounded) <= maximumDecimalDisplayLength;
+  // Auto leaves the unscaled form to trusted exact integers. Other values use
+  // a coefficient with the requested number of fractional places.
+  const raw = notation === "decimal" && showDecimal ? fixedRounded.toFixed(decimalPlaces) : magnitude.toExponential(decimalPlaces);
   let [coefficient, exponent = ""] = raw.split("e");
   exponent = exponent.replace(/^\+/, "");
   const cleanCoefficient = coefficient.replace(/(\.[0-9]*?)0+$/, "$1").replace(/\.$/, "");
-  const numericExponent = Number(exponent || 0);
-  if ((notation === "auto" && numericExponent >= -6 && numericExponent <= 15) || showDecimal) {
-    let plain = rounded.toFixed().replace(/(\.[0-9]*?)0+$/, "$1").replace(/\.$/, "");
-    // A display precision cap must not manufacture a long tail of apparent
-    // significant zeroes.  Keep the meaningful prefix and mark the omission.
-    if (displayWasRounded && !plain.includes(".")) plain = `${plain.replace(/0+$/, "")}…`;
-    return { sign, significand: plain, exponent: "", text: `${sign}${plain}`, full: `${sign}${magnitude.toString()}`, truncated: displayWasRounded };
-  }
+  if (showDecimal) return { sign, significand: cleanCoefficient, exponent: "", text: `${sign}${cleanCoefficient}`, full: `${sign}${magnitude.toString()}`, truncated: magnitude.decimalPlaces() > decimalPlaces };
   if (notation === "engineering" && exponent) {
-    const parts = scientificParts(magnitude, precision, true);
+    const parts = engineeringFromParts(cleanCoefficient, exponent);
     return { sign, significand: parts.coefficient, exponent: parts.exponent, text: `${sign}${parts.coefficient} × 10^${parts.exponent}`, full: `${sign}${magnitude.toString()}` };
   }
   return { sign, significand: cleanCoefficient, exponent, text: `${sign}${cleanCoefficient}${exponent ? ` × 10^${exponent}` : ""}`, full: `${sign}${magnitude.toString()}` };

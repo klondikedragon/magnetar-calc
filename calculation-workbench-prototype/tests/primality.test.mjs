@@ -59,13 +59,19 @@ test("clipboard formatting honors Decimal notation at full engine precision", ()
   assert.equal(grouped, "16,191,462,721,115,671,781,777,559,070,120,513,664,958,590,125,499,158,514,329,308,740,975,788,034");
 });
 
-test("display precision does not change Decimal engine precision", () => {
-  const value = evaluateAutomatically("(2005956546822746114^2 - 2)^2 - 2");
-  const displayed = formatAutomatically(value, { base: 10, notation: "decimal", precision: 48 });
-  assert.equal(value.decimal.sd(), 74);
-  assert.equal(displayed.truncated, true);
-  assert.match(displayed.significand, /…$/);
+test("display places do not change Decimal engine precision", () => {
+  const value = evaluateAutomatically("1 / 7");
+  const displayed = formatAutomatically(value, { base: 10, notation: "auto", precision: 2 });
+  assert.equal(value.decimal.sd(), 1000);
+  assert.equal(displayed.text, "1.43 × 10^-1");
   assert.equal(inspectAutomatically(value).precision, "1,000 significant digits internal");
+});
+
+test("Auto displays trusted exact integers in full regardless of fractional places", () => {
+  const value = evaluateAutomatically("(2005956546822746114^2 - 2)^2 - 2");
+  const displayed = formatAutomatically(value, { base: 10, notation: "auto", precision: 1 });
+  assert.equal(displayed.text, "16191462721115671781777559070120513664958590125499158514329308740975788034");
+  assert.equal(displayed.exactIntegerDisplay, true);
 });
 
 test("high-precision export formats all recomputed Decimal digits without changing defaults", () => {
@@ -77,9 +83,9 @@ test("high-precision export formats all recomputed Decimal digits without changi
   assert.equal(evaluateAutomatically("1 / 7").decimal.sd(), 1000);
 });
 
-test("zero display precision rounds to an integer without switching to magnitude-only notation", () => {
+test("zero display places uses a zero-place scientific coefficient for non-integers", () => {
   const decimal = formatAutomatically(evaluateAutomatically("3103.8"), { base: 10, precision: 0, notation: "auto" });
-  assert.equal(decimal.text, "3104");
+  assert.equal(decimal.text, "3 × 10^3");
   const scientific = formatAutomatically(evaluateAutomatically("3103.8"), { base: 10, precision: 0, notation: "scientific" });
   assert.equal(scientific.text, "3 × 10^3");
 });
