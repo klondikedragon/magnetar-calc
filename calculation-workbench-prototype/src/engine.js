@@ -7,6 +7,12 @@ function formatNumber(number, base, precision = 48, notation = "auto") {
   if (!Number.isFinite(number)) return { sign: "", significand: "Not a finite number", exponent: "", text: "Not a finite number", full: String(number) };
   const sign = number < 0 ? "−" : "";
   const absolute = Math.abs(number);
+  if (precision === 0 && base === 10) {
+    const rounded = Math.round(absolute);
+    const raw = notation === "scientific" || notation === "engineering" || rounded >= 1e9 ? rounded.toExponential(0) : String(rounded);
+    const [significand, exponent = ""] = raw.split("e");
+    return { sign, significand, exponent: exponent.replace(/^\+/, ""), text: `${sign}${significand}${exponent ? ` × 10^${exponent.replace(/^\+/, "")}` : ""}`, full: String(number) };
+  }
   if (base === 2 && Number.isInteger(number)) return { sign, significand: `0b${absolute.toString(2)}`, exponent: "", text: `${sign}0b${absolute.toString(2)}`, full: `${sign}0b${absolute.toString(2)}` };
   if (base === 16 && Number.isInteger(number)) return { sign, significand: `0x${absolute.toString(16).toUpperCase()}`, exponent: "", text: `${sign}0x${absolute.toString(16).toUpperCase()}`, full: `${sign}0x${absolute.toString(16).toUpperCase()}` };
   const significant = Number(absolute.toPrecision(Math.min(16, precision))).toString();
@@ -51,7 +57,8 @@ const tokenPattern = /\s*(\d+(?:\.\d*)?(?:e[+-]?\d+)?|@history\(\d+\)|[A-Za-z][A
 const maximumExpressionLength = 12000;
 const maximumTokenCount = 2400;
 const maximumTetrationHeight = 10000000;
-const maximumDecimalDisplayLength = 1000;
+export const defaultCalculationPrecision = 10_000;
+const maximumDecimalDisplayLength = defaultCalculationPrecision;
 export const exportPrecision = 10_000_000;
 
 function tokenize(source) {
@@ -195,7 +202,7 @@ function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, 
 }
 
 function scientificParts(magnitude, precision, engineering = false) {
-  const rounded = magnitude.toSignificantDigits(Math.max(1, Math.min(precision, 1000)));
+  const rounded = magnitude.toSignificantDigits(Math.max(1, Math.min(precision, defaultCalculationPrecision)));
   let [coefficient, exponent = ""] = rounded.toExponential().split("e");
   let numericExponent = Number(exponent || 0);
   if (engineering && Number.isFinite(numericExponent)) {
@@ -298,9 +305,22 @@ function formatDecimal(value, base = 10, precision = 48, notation = "auto") {
   const sign = decimal.isNegative() ? "−" : "";
   const magnitude = decimal.abs();
   if (magnitude.isZero()) return { sign: "", significand: "0", exponent: "", text: "0", full: "0" };
-  if (base === 2) return { sign, significand: magnitude.toBinary(Math.min(precision, 1000)), exponent: "", text: `${sign}${magnitude.toBinary(Math.min(precision, 1000))}`, full: `${sign}${magnitude.toString()}` };
-  if (base === 16) return { sign, significand: magnitude.toHex(Math.min(precision, 1000)), exponent: "", text: `${sign}${magnitude.toHex(Math.min(precision, 1000))}`, full: `${sign}${magnitude.toString()}` };
-  const digits = Math.max(1, Math.min(precision, 1000));
+  if (base === 2) return { sign, significand: magnitude.toBinary(Math.min(Math.max(1, precision), defaultCalculationPrecision)), exponent: "", text: `${sign}${magnitude.toBinary(Math.min(Math.max(1, precision), defaultCalculationPrecision))}`, full: `${sign}${magnitude.toString()}` };
+  if (base === 16) return { sign, significand: magnitude.toHex(Math.min(Math.max(1, precision), defaultCalculationPrecision)), exponent: "", text: `${sign}${magnitude.toHex(Math.min(Math.max(1, precision), defaultCalculationPrecision))}`, full: `${sign}${magnitude.toString()}` };
+  if (precision === 0) {
+    const rounded = magnitude.toDecimalPlaces(0);
+    const raw = notation === "scientific" || notation === "engineering" ? rounded.toExponential(0) : notation === "decimal" && decimalExpandedLength(rounded) <= maximumDecimalDisplayLength ? rounded.toFixed(0) : rounded.toString();
+    let [coefficient, exponent = ""] = raw.split("e");
+    exponent = exponent.replace(/^\+/, "");
+    const numericExponent = Number(exponent || 0);
+    if (notation === "auto" && numericExponent >= -6 && numericExponent <= 15) coefficient = rounded.toFixed(0);
+    if (notation === "engineering" && exponent) {
+      const parts = engineeringFromParts(coefficient, exponent);
+      return { sign, significand: parts.coefficient, exponent: parts.exponent, text: `${sign}${parts.coefficient} × 10^${parts.exponent}`, full: `${sign}${magnitude.toString()}` };
+    }
+    return { sign, significand: coefficient, exponent, text: `${sign}${coefficient}${exponent ? ` × 10^${exponent}` : ""}`, full: `${sign}${magnitude.toString()}` };
+  }
+  const digits = Math.max(1, Math.min(precision, defaultCalculationPrecision));
   const rounded = magnitude.toSignificantDigits(digits);
   const displayWasRounded = magnitude.sd() > digits;
   const showDecimal = notation === "decimal" && decimalExpandedLength(rounded) <= maximumDecimalDisplayLength;
@@ -331,12 +351,12 @@ export const decimalEngine = {
   evaluate(expression, references = new Map(), options = {}) {
     const calculationPrecision = Number.isInteger(options.calculationPrecision)
       ? Math.max(1, Math.min(options.calculationPrecision, 1e9))
-      : 1000;
+      : defaultCalculationPrecision;
     const Ctor = Decimal.clone({ precision: calculationPrecision, maxE: 9e15, minE: -9e15 });
-    return evaluateBreak(expression, references, Ctor, "decimal.js");
+    return { ...evaluateBreak(expression, references, Ctor, "decimal.js"), calculationPrecision };
   },
   format(value, options = {}) { return value.kind === "decimal.js" ? formatDecimal(value, options.base, options.precision, options.notation) : breakEternityEngine.format(value, options); },
-  inspect(value, options = {}) { return { ...this.format(value, options), engine: "decimal.js", representation: "arbitrary-precision decimal", exactness: value.exactInteger ? "exact integer" : "rounded to 1,000 significant digits", precision: "1,000 significant digits internal" }; },
+  inspect(value, options = {}) { const calculationPrecision = value.calculationPrecision ?? 1000; return { ...this.format(value, options), engine: "decimal.js", representation: "arbitrary-precision decimal", exactness: value.exactInteger ? "exact integer" : `rounded to ${calculationPrecision.toLocaleString()} significant digits`, precision: `${calculationPrecision.toLocaleString()} significant digits internal` }; },
   digitCount(value, base = 10) {
     const absolute = value.decimal.abs();
     if (absolute.isZero() || absolute.lt(1)) return { value: { kind: "decimal.js", decimal: new Decimal(1), full: "1" }, certainty: "exact" };
@@ -471,7 +491,7 @@ export function formatAutomatically(value, options = {}) {
 // accidental Decimal.js toString() serialization.  Use the engine/display
 // ceiling while preserving the user's selected base and notation.
 export function formatForCopy(value, options = {}) {
-  return formatAutomatically(value, { ...options, precision: 1000, groupDigits: options.groupDigits ?? false }).text;
+  return formatAutomatically(value, { ...options, precision: defaultCalculationPrecision, groupDigits: options.groupDigits ?? false }).text;
 }
 
 // Export is deliberately separate from normal rendering: it may format a
