@@ -26,6 +26,7 @@
 .memory-expression { margin: 12px 0 8px; color: #536068; font: 14px/1.5 "DM Mono", monospace; white-space: pre-wrap; max-height: 180px; overflow: auto; }
 .memory-answer { display: flex; align-items: baseline; gap: 6px; border: 0; background: transparent; padding: 0; color: #1e2b2b; font: 20px "DM Mono", monospace; }
 .memory-card .inspection-details { align-items: flex-start; flex-wrap: wrap; gap: 14px; }
+.key.placeholder { cursor: default; opacity: .3; background: transparent; border-style: dashed; }
 .memory-actions { display: flex; justify-content: flex-end; gap: 15px; margin-top: 18px; }
 .expression-warning { color: #a36a39; }
 .tower-expanded { font-size: .82em; letter-spacing: -.05em; }
