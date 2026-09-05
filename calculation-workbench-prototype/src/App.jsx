@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, exportPrecision, formatAutomatically, formatDigitCountForInspector, formatForHighPrecisionExport, inspectAutomatically, serializeValue } from "./engine";
+import { createNotebook, validateNotebook } from "./notebook";
+import { exampleWorkbenches } from "./exampleWorkbenches";
 
 const initialHistory = [
   { id: 3, expression: "√(2) + π / 7", value: { kind: "number", number: 1.862012077376797, full: "1.862012077376796985004668721836731291106586140266324758279159345760390983" } },
@@ -49,6 +51,13 @@ function readStoredWorkspace() {
   } catch { return null; }
 }
 
+function historyReferences(items) {
+  return items.flatMap((item, index) => {
+    const value = serializeValue(item.value);
+    return [[`@history(${item.id})`, value], [`@history(-${index + 1})`, value]];
+  });
+}
+
 export function App() {
   const [storedWorkspace] = useState(readStoredWorkspace);
   const [expression, setExpression] = useState(() => storedWorkspace?.expression ?? "√(2) + π / 7");
@@ -66,6 +75,12 @@ export function App() {
   const [toast, setToast] = useState("");
   const [expressionError, setExpressionError] = useState("");
   const [exportStatus, setExportStatus] = useState("");
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportAnswers, setExportAnswers] = useState("none");
+  const [exportView, setExportView] = useState(false);
+  const [examplesOpen, setExamplesOpen] = useState(false);
+  const [pendingImport, setPendingImport] = useState(null);
+  const [transferStatus, setTransferStatus] = useState("");
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [expressionLines, setExpressionLines] = useState(1);
@@ -77,6 +92,8 @@ export function App() {
   const jobCounterRef = useRef(0);
   const workerRef = useRef(null);
   const exportWorkerRef = useRef(null);
+  const notebookOperationRef = useRef(null);
+  const importInputRef = useRef(null);
   const commitOnSuccessRef = useRef(false);
   const completedExpressionRef = useRef("");
   const focusExpression = () => requestAnimationFrame(() => expressionRef.current?.focus());
@@ -161,7 +178,7 @@ export function App() {
     }, 120);
     return () => { clearTimeout(debounce); workerRef.current?.terminate(); };
   }, [expression, precision, workerReferences]);
-  useEffect(() => () => exportWorkerRef.current?.terminate(), []);
+  useEffect(() => () => { exportWorkerRef.current?.terminate(); notebookOperationRef.current?.worker?.terminate(); }, []);
   useEffect(() => {
     if (!["debouncing", "computing"].includes(calculation.status)) { setShowCalculating(false); return undefined; }
     const timer = setTimeout(() => setShowCalculating(true), 300);
@@ -350,6 +367,166 @@ export function App() {
     worker.postMessage({ expression: sourceExpression, references: workerReferences, options: { calculationPrecision: exportPrecision, forceDecimal: true } });
   }
 
+  function downloadNotebook(notebook) {
+    const blob = new Blob([JSON.stringify(notebook, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "elephant-calc-notebook.json";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  function startNotebookOperation(status) {
+    const operation = { cancelled: false, worker: null };
+    notebookOperationRef.current = operation;
+    setTransferStatus(status);
+    return operation;
+  }
+
+  function cancelNotebookOperation() {
+    const operation = notebookOperationRef.current;
+    if (!operation) return;
+    operation.cancelled = true;
+    operation.worker?.terminate();
+    operation.reject?.(new Error("cancelled"));
+    notebookOperationRef.current = null;
+    setTransferStatus("Notebook operation cancelled");
+    setTimeout(() => setTransferStatus(""), 1800);
+  }
+
+  function calculateNotebookExpression(operation, source, references, options = {}) {
+    return new Promise((resolve, reject) => {
+      const worker = new Worker(new URL("./calculation-worker.js", import.meta.url), { type: "module" });
+      operation.worker = worker;
+      operation.reject = reject;
+      const deadline = setTimeout(() => {
+        worker.terminate();
+        if (operation.worker === worker) { operation.worker = null; operation.reject = null; }
+        reject(new Error("calculation reached its time budget"));
+      }, 10000);
+      worker.onmessage = ({ data }) => {
+        clearTimeout(deadline);
+        worker.terminate();
+        if (operation.cancelled || notebookOperationRef.current !== operation) { reject(new Error("cancelled")); return; }
+        operation.worker = null;
+        operation.reject = null;
+        if (data.type === "error") { reject(new Error(data.message ?? "calculation failed")); return; }
+        resolve(deserializeValue(data.value));
+      };
+      worker.postMessage({ expression: source, references, options });
+    });
+  }
+
+  async function recomputeNotebookHistory(operation, entries, options = {}) {
+    let recomputed = [];
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      if (operation.cancelled) throw new Error("cancelled");
+      const entry = entries[index];
+      setTransferStatus(`Recomputing History ${entries.length - index} of ${entries.length}…`);
+      try {
+        const value = await calculateNotebookExpression(operation, entry.expression, historyReferences(recomputed), options);
+        recomputed = [{ id: entry.id, expression: entry.expression, value }, ...recomputed];
+      } catch (error) {
+        if (error.message === "cancelled") throw error;
+        throw new Error(`@history(${entry.id}) could not be recalculated: ${calculationErrorMessage(error.message)}`);
+      }
+    }
+    return recomputed;
+  }
+
+  function currentViewSettings() { return { base, precision, notation, groupDigits, activeMode }; }
+
+  function openExportDialog() {
+    setExportAnswers("none");
+    setExportView(false);
+    setExportDialogOpen(true);
+  }
+
+  async function exportNotebook() {
+    const includeAnswers = exportAnswers !== "none";
+    const highPrecision = exportAnswers === "10m";
+    setExportDialogOpen(false);
+    if (!highPrecision) {
+      downloadNotebook(createNotebook({ expression, previewValue, includeActiveAnswer: completedExpressionRef.current === expression, history, nextId, view: currentViewSettings(), includeView: exportView, includeAnswers }));
+      setToast(includeAnswers ? "Notebook with answers downloaded" : "Notebook expressions downloaded");
+      setTimeout(() => setToast(""), 1800);
+      return;
+    }
+    const operation = startNotebookOperation("Preparing 10M-digit notebook export…");
+    try {
+      const recalculatedHistory = await recomputeNotebookHistory(operation, history, { calculationPrecision: exportPrecision });
+      let activeValue = null;
+      if (expression.trim()) {
+        setTransferStatus("Recomputing active expression…");
+        activeValue = await calculateNotebookExpression(operation, expression, historyReferences(recalculatedHistory), { calculationPrecision: exportPrecision });
+      }
+      if (operation.cancelled) throw new Error("cancelled");
+      downloadNotebook(createNotebook({ expression, previewValue: activeValue, includeActiveAnswer: Boolean(activeValue), history: recalculatedHistory, nextId, view: currentViewSettings(), includeView: exportView, includeAnswers: true, highPrecision: true }));
+      setTransferStatus("10M-digit notebook downloaded");
+      setTimeout(() => setTransferStatus(""), 2200);
+    } catch (error) {
+      if (error.message !== "cancelled") { setTransferStatus(error.message || "Notebook export could not be completed"); setTimeout(() => setTransferStatus(""), 3000); }
+    } finally {
+      if (notebookOperationRef.current === operation) notebookOperationRef.current = null;
+    }
+  }
+
+  function applyImportedView(view) {
+    if (!view) return;
+    if ([2, 10, 16].includes(view.base)) setBase(view.base);
+    if (Number.isInteger(view.precision) && view.precision >= 0 && view.precision <= maximumDisplayPrecision) setPrecision(view.precision);
+    if (["auto", "decimal", "scientific", "engineering", "expanded"].includes(view.notation)) setNotation(view.notation);
+    if (typeof view.groupDigits === "boolean") setGroupDigits(view.groupDigits);
+    if (modes.includes(view.activeMode)) setActiveMode(view.activeMode);
+  }
+
+  function queueNotebookImport(candidate, label) {
+    try {
+      setPendingImport({ notebook: validateNotebook(candidate), label });
+      setExamplesOpen(false);
+    } catch (error) {
+      setToast(error.message || "Notebook could not be read");
+      setTimeout(() => setToast(""), 2200);
+    }
+  }
+
+  async function confirmNotebookImport() {
+    const pending = pendingImport;
+    if (!pending) return;
+    setPendingImport(null);
+    const operation = startNotebookOperation(`Importing ${pending.label}…`);
+    try {
+      const recalculatedHistory = await recomputeNotebookHistory(operation, pending.notebook.history);
+      if (operation.cancelled) throw new Error("cancelled");
+      setHistory(recalculatedHistory);
+      setNextId(pending.notebook.nextId);
+      setExpression(pending.notebook.expression);
+      setPreviewValue(recalculatedHistory[0]?.value ?? previewValue);
+      completedExpressionRef.current = "";
+      setExpressionError("");
+      setInspectorOpen(false);
+      applyImportedView(pending.notebook.view);
+      setTransferStatus(`Imported and recalculated ${recalculatedHistory.length} History entries`);
+      setTimeout(() => setTransferStatus(""), 2400);
+      focusExpression();
+    } catch (error) {
+      if (error.message !== "cancelled") { setTransferStatus(error.message || "Notebook import could not be completed"); setTimeout(() => setTransferStatus(""), 3200); }
+    } finally {
+      if (notebookOperationRef.current === operation) notebookOperationRef.current = null;
+    }
+  }
+
+  async function readNotebookFile(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try { queueNotebookImport(JSON.parse(await file.text()), file.name); }
+    catch { setToast("That file is not valid JSON"); setTimeout(() => setToast(""), 2200); }
+  }
+
   function useHistory(item) {
     updatePreview(item.expression);
     requestAnimationFrame(() => expressionRef.current?.focus());
@@ -403,8 +580,10 @@ export function App() {
         <span className="sr-only" role="status" aria-live="polite">{expressionError || toast || exportStatus}</span>
       </section>
       <section className="control-strip" aria-label="Display controls"><div className="control"><label>DISPLAY BASE</label><div className="segmented">{[10, 2, 16].map((item) => <button key={item} onClick={() => setBase(item)} className={base === item ? "selected" : ""}>{item === 10 ? "Decimal" : item === 2 ? "Binary" : "Hex"}</button>)}</div></div><div className="control precision"><label>DISPLAY PRECISION <strong>{precisionLabel} places</strong></label><input aria-label="Display precision" title="Logarithmic scale from 0 to 10,000 fractional places" type="range" min="0" max={precisionSliderSteps} step="1" value={precisionToSlider(precision)} onChange={(event) => setPrecision(sliderToPrecision(Number(event.target.value)))} /><div><span>0</span><span>10,000</span></div></div><div className="control notation"><div className="control-label-row"><label>NOTATION</label><button className={`grouping-toggle ${groupDigits ? "selected" : ""}`} aria-label="Group expanded decimal digits" aria-pressed={groupDigits} title="Group expanded decimal digits" onClick={() => setGroupDigits((enabled) => !enabled)}>,</button></div><select value={notation} onChange={(event) => setNotation(event.target.value)}><option value="auto">Auto</option><option value="decimal">Decimal</option><option value="scientific">Scientific</option><option value="engineering">Engineering</option><option value="expanded">Expanded</option></select></div></section>
-      <section className="desk"><div className="keypad-panel"><div className="panel-heading"><div><p className="eyebrow">INPUT PALETTE</p><select className="mode-select" aria-label="Input mode" value={activeMode} onChange={(event) => setActiveMode(event.target.value)}>{modes.map((mode) => <option key={mode}>{mode}</option>)}</select></div><div className="memory-strip">{memoryDisplay && <button className="memory-chip selectable-output" aria-label={resultLabel(memoryDisplay, "Open memory")} title={`${memoryTooltip} · click to inspect memory`} onClick={openMemory}>M {memoryDisplay.sign}{memoryDisplay.significand}{memoryDisplay.exponent && ` × 10^${memoryDisplay.exponent}`}</button>}<button aria-label="Clear memory" onClick={() => setMemory(null)}>MC</button><button aria-label="Add active expression to memory" onClick={addToMemory}>M+</button><button aria-label="Recall memory into expression" onClick={recallMemory}>MR</button></div></div><div className="keypad">{paletteKeys.flat().map((key, index) => <button key={`${key || "future"}-${index}`} aria-hidden={key === ""} tabIndex={key === "" ? -1 : undefined} disabled={key === ""} aria-label={paletteHelp[key] ?? keyLabels[key] ?? `Insert ${key}`} title={paletteHelp[key]} className={key === "" ? "key placeholder" : key === "=" ? "key equal" : ["AC", "⌫"].includes(key) ? "key utility" : ["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ", "sin", "cos", "tan", "ln", "log", "!", "π", "e", "τ", "φ", "abs", "mod", "%", "↑", "↑↑", "Fₙ", "Lₙ", "pₙ", "π(n)", "P(n)", "Cₙ", "Bₙ", "Tₙ", "Hₙ", "Jₙ", "S(n,k)", "nCr", "F₁(n)", "F₂(n)", "F₃(n)", "F₄(n)", "F₅(n)"].includes(key) ? "key function" : "key"} onClick={() => appendKey(key)}>{key}</button>)}</div><div className="shortcut-row"><span>Enter <b>save</b></span><span>Esc <b>clear</b></span><span>result click <b>inspect</b></span></div></div><div className="trail-panel"><div className="panel-heading"><div><p className="eyebrow">HISTORY</p><h2>{history.length} calculations</h2></div><button className="quiet" onClick={() => { setHistory([]); setNextId(1); }}>Reset history</button></div><div className="history-list">{history.map((item) => { const itemResult = renderResult(item.value); const itemPrimality = primalityLabel(item.value); const itemTooltip = formatAutomatically(item.value, { base, precision, notation, groupDigits }).text; return <article className="history-item" key={item.id}><div className="history-top"><span className="history-id selectable-text" aria-label={`History item ${item.id}`}>@history({item.id})</span><span className="history-actions"><button className="use-button" aria-label={`Use History item ${item.id} in the active expression`} onClick={() => useHistory(item)}>Use</button><button className="delete-history" aria-label={`Delete History item ${item.id}`} title={`Delete @history(${item.id})`} onClick={() => setHistory((items) => items.filter((entry) => entry.id !== item.id))}>×</button></span></div><p className="history-expression selectable-text" aria-label={`History expression: ${item.expression}`}>{item.expression}</p><button className="history-result selectable-output" aria-label={resultLabel(itemResult, "Copy History result")} title={`${itemTooltip} · click to copy`} onClick={() => copyResult(item.value)}>{renderResultContent(itemResult)}{item.value.primality?.kind === "prime" && <span className={`prime-badge ${item.value.primality.certainty}`} title={itemPrimality === "prime" ? "Verified prime" : "Probable prime"} aria-label={itemPrimality === "prime" ? "Verified prime" : "Probable prime"}>P{item.value.primality.certainty === "probable" ? "?" : ""}</span>}</button></article>; })}{!history.length && <p className="empty">History is clear. New committed calculations will appear here.</p>}</div></div></section>
+      <section className="desk"><div className="keypad-panel"><div className="panel-heading"><div><p className="eyebrow">INPUT PALETTE</p><select className="mode-select" aria-label="Input mode" value={activeMode} onChange={(event) => setActiveMode(event.target.value)}>{modes.map((mode) => <option key={mode}>{mode}</option>)}</select></div><div className="memory-strip">{memoryDisplay && <button className="memory-chip selectable-output" aria-label={resultLabel(memoryDisplay, "Open memory")} title={`${memoryTooltip} · click to inspect memory`} onClick={openMemory}>M {memoryDisplay.sign}{memoryDisplay.significand}{memoryDisplay.exponent && ` × 10^${memoryDisplay.exponent}`}</button>}<button aria-label="Clear memory" onClick={() => setMemory(null)}>MC</button><button aria-label="Add active expression to memory" onClick={addToMemory}>M+</button><button aria-label="Recall memory into expression" onClick={recallMemory}>MR</button></div></div><div className="keypad">{paletteKeys.flat().map((key, index) => <button key={`${key || "future"}-${index}`} aria-hidden={key === ""} tabIndex={key === "" ? -1 : undefined} disabled={key === ""} aria-label={paletteHelp[key] ?? keyLabels[key] ?? `Insert ${key}`} title={paletteHelp[key]} className={key === "" ? "key placeholder" : key === "=" ? "key equal" : ["AC", "⌫"].includes(key) ? "key utility" : ["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ", "sin", "cos", "tan", "ln", "log", "!", "π", "e", "τ", "φ", "abs", "mod", "%", "↑", "↑↑", "Fₙ", "Lₙ", "pₙ", "π(n)", "P(n)", "Cₙ", "Bₙ", "Tₙ", "Hₙ", "Jₙ", "S(n,k)", "nCr", "F₁(n)", "F₂(n)", "F₃(n)", "F₄(n)", "F₅(n)"].includes(key) ? "key function" : "key"} onClick={() => appendKey(key)}>{key}</button>)}</div><div className="shortcut-row"><span>Enter <b>save</b></span><span>Esc <b>clear</b></span><span>result click <b>inspect</b></span></div></div><div className="trail-panel"><div className="panel-heading"><div><p className="eyebrow">HISTORY</p><h2>{history.length} calculations</h2></div><div className="history-toolbar"><div className="examples-menu"><button className="quiet examples-button" aria-expanded={examplesOpen} aria-haspopup="menu" title="Load an example history" onClick={() => setExamplesOpen((open) => !open)}>Examples</button>{examplesOpen && <div className="examples-popover" role="menu">{Object.entries(exampleWorkbenches).map(([key, example]) => <button key={key} role="menuitem" onClick={() => queueNotebookImport(example, example.title)}><b>{example.title}</b><small>{example.description}</small></button>)}</div>}</div><button className="history-icon" aria-label="Download History notebook" title="Download History notebook" onClick={openExportDialog}>⇩</button><button className="history-icon" aria-label="Import History notebook" title="Import History notebook" onClick={() => importInputRef.current?.click()}>⇧</button><button className="history-icon reset-history" aria-label="Reset History" title="Reset History" onClick={() => { setHistory([]); setNextId(1); }}>↺</button><input ref={importInputRef} className="file-input" type="file" accept="application/json,.json" onChange={readNotebookFile} /></div></div>{transferStatus && <div className="transfer-status" role="status">{transferStatus}{notebookOperationRef.current && <button onClick={cancelNotebookOperation}>Cancel</button>}</div>}<div className="history-list">{history.map((item) => { const itemResult = renderResult(item.value); const itemPrimality = primalityLabel(item.value); const itemTooltip = formatAutomatically(item.value, { base, precision, notation, groupDigits }).text; return <article className="history-item" key={item.id}><div className="history-top"><span className="history-id selectable-text" aria-label={`History item ${item.id}`}>@history({item.id})</span><span className="history-actions"><button className="use-button" aria-label={`Use History item ${item.id} in the active expression`} onClick={() => useHistory(item)}>Use</button><button className="delete-history" aria-label={`Delete History item ${item.id}`} title={`Delete @history(${item.id})`} onClick={() => setHistory((items) => items.filter((entry) => entry.id !== item.id))}>×</button></span></div><p className="history-expression selectable-text" aria-label={`History expression: ${item.expression}`}>{item.expression}</p><button className="history-result selectable-output" aria-label={resultLabel(itemResult, "Copy History result")} title={`${itemTooltip} · click to copy`} onClick={() => copyResult(item.value)}>{renderResultContent(itemResult)}{item.value.primality?.kind === "prime" && <span className={`prime-badge ${item.value.primality.certainty}`} title={itemPrimality === "prime" ? "Verified prime" : "Probable prime"} aria-label={itemPrimality === "prime" ? "Verified prime" : "Probable prime"}>P{item.value.primality.certainty === "probable" ? "?" : ""}</span>}</button></article>; })}{!history.length && <p className="empty">History is clear. New committed calculations will appear here.</p>}</div></div></section>
     </section>
+    {exportDialogOpen && <div className="notebook-overlay" role="dialog" aria-modal="true" aria-label="Download notebook"><div className="notebook-card"><div className="panel-heading"><div><p className="eyebrow">DOWNLOAD NOTEBOOK</p><h2>Choose what to include</h2></div><button className="quiet" onClick={() => setExportDialogOpen(false)}>Close</button></div><fieldset className="export-options"><legend>History contents</legend><label><input type="radio" name="answers" checked={exportAnswers === "none"} onChange={() => setExportAnswers("none")} /> Expressions only</label><label><input type="radio" name="answers" checked={exportAnswers === "current"} onChange={() => setExportAnswers("current")} /> With answers</label><label><input type="radio" name="answers" checked={exportAnswers === "10m"} onChange={() => setExportAnswers("10m")} /> With answers (10M digits)</label></fieldset><label className="export-view-option"><input type="checkbox" checked={exportView} onChange={(event) => setExportView(event.target.checked)} /> Include current view settings</label><p className="notebook-note">Imported notebooks always recalculate expressions; saved answers are archival metadata.</p><div className="notebook-actions"><button className="quiet" onClick={() => setExportDialogOpen(false)}>Cancel</button><button className="download-button" onClick={exportNotebook}>Download JSON</button></div></div></div>}
+    {pendingImport && <div className="notebook-overlay" role="dialog" aria-modal="true" aria-label="Confirm notebook import"><div className="notebook-card"><p className="eyebrow">IMPORT NOTEBOOK</p><h2>Replace the current workbench?</h2><p className="notebook-note"><b>{pendingImport.label}</b> has {pendingImport.notebook.history.length} History entries. Every expression will be recalculated; saved answers are never trusted.</p>{pendingImport.notebook.view && <p className="notebook-note">Its saved view settings will also be applied.</p>}<div className="notebook-actions"><button className="quiet" onClick={() => setPendingImport(null)}>Cancel</button><button className="download-button" onClick={confirmNotebookImport}>Import and recalculate</button></div></div></div>}
     {memoryOpen && memory && <div className="memory-overlay" role="dialog" aria-modal="true" aria-label="Memory details"><div className="memory-card" ref={memoryDialogRef}><div className="panel-heading"><div><p className="eyebrow">MEMORY</p><h2>Accumulated expression</h2></div><button className="quiet" ref={memoryCloseRef} onClick={closeMemory}>Close</button></div><p className="memory-expression selectable-text">{memory.expression}</p><button className="memory-answer selectable-output" aria-label={resultLabel(memoryDisplay, "Memory result")} title={memoryTooltip} onClick={() => { if (!hasTextSelection()) closeMemory(); }}>{renderResultContent(memoryDisplay)}</button><InspectionDetails value={memory.value} data={memoryInspection} digits={memoryDigitCount} sourceExpression={memory.expression} /><div className="memory-actions"><button className="use-button" onClick={recallMemory}>Recall into expression</button><button className="quiet" onClick={() => { setMemory(null); closeMemory(); }}>Clear memory</button></div></div></div>}
   </main>;
 }
