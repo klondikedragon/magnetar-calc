@@ -56,6 +56,10 @@ export const placeholderEngine = {
 
 const maximumTetrationHeight = 10000000;
 export const defaultCalculationPrecision = 1_000;
+// Decimal.js ships a finite π constant for trigonometric reduction. When
+// its guard digits exhaust that constant, retry in its verified 500-digit
+// range instead of silently falling through to the ~15-digit wide-range engine.
+const maximumDecimalTrigonometricPrecision = 500;
 // The view can request a wider display range, but normal calculations never
 // manufacture digits beyond the stored 1,000-digit Decimal value.
 const maximumDecimalDisplayLength = 10_000;
@@ -260,7 +264,7 @@ function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, 
       if (node.implementationId === "trigonometry-cos") return args[0].cos();
       if (node.implementationId === "trigonometry-tan") return args[0].tan();
       if (node.implementationId === "logarithm-natural") return args[0].ln();
-      if (node.implementationId === "logarithm-base-ten") return args[0].log10();
+      if (node.implementationId === "logarithm-base-ten") return Ctor === BreakDecimal ? args[0].log10() : args[0].log(10);
       if (node.implementationId === "arithmetic-abs") return args[0].abs();
       if (node.implementationId === "exponential-exp") return args[0].exp();
       if (node.implementationId === "scientific-floor") return numericMethod(args[0], "floor");
@@ -450,11 +454,23 @@ export const decimalEngine = {
   capabilities: { maxExponent: 9e15, precision: "configurable", layered: false, hyper: false },
   parse(expression) { return { expression, kind: "decimal.js" }; },
   evaluate(expression, references = new Map(), options = {}) {
-    const calculationPrecision = Number.isInteger(options.calculationPrecision)
+    const requestedPrecision = Number.isInteger(options.calculationPrecision)
       ? Math.max(1, Math.min(options.calculationPrecision, 1e9))
       : defaultCalculationPrecision;
-    const Ctor = Decimal.clone({ precision: calculationPrecision, maxE: 9e15, minE: -9e15 });
-    return { ...evaluateBreak(expression, references, Ctor, "decimal.js"), calculationPrecision };
+    const hasTrigonometricCall = /\b(?:sin|cos|tan)\s*\(/i.test(expression);
+    const evaluateAtPrecision = (calculationPrecision) => {
+      const Ctor = Decimal.clone({ precision: calculationPrecision, maxE: 9e15, minE: -9e15 });
+      return { ...evaluateBreak(expression, references, Ctor, "decimal.js"), calculationPrecision };
+    };
+
+    try {
+      return evaluateAtPrecision(requestedPrecision);
+    } catch (error) {
+      if (hasTrigonometricCall && requestedPrecision > maximumDecimalTrigonometricPrecision) {
+        return evaluateAtPrecision(maximumDecimalTrigonometricPrecision);
+      }
+      throw error;
+    }
   },
   format(value, options = {}) { return value.kind === "decimal.js" ? formatDecimal(value, options.base, options.precision, options.notation) : breakEternityEngine.format(value, options); },
   inspect(value, options = {}) { const calculationPrecision = value.calculationPrecision ?? 1000; return { ...this.format(value, options), engine: "decimal.js", representation: "arbitrary-precision decimal", exactness: value.exactInteger ? "exact integer" : `rounded to ${calculationPrecision.toLocaleString()} significant digits`, precision: `${calculationPrecision.toLocaleString()} significant digits internal` }; },
