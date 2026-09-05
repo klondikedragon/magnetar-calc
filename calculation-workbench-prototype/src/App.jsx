@@ -28,6 +28,7 @@ const sequenceHelp = {
 };
 const ordinalHelp = { "F₁(n)": "Wainer fast-growing hierarchy: F1(n)=2n.", "F₂(n)": "Wainer fast-growing hierarchy: F2(n)=n·2ⁿ.", "F₃(n)": "Wainer fast-growing hierarchy: iterate F2, n times, starting at n.", "F₄(n)": "Wainer fast-growing hierarchy — shown structurally until the ordinal engine is available.", "F₅(n)": "Wainer fast-growing hierarchy — shown structurally until the ordinal engine is available.", "Fω(n)": "Diagonal Wainer function Fω(n)=Fn(n); reserved for the ordinal engine.", ω: "First infinite ordinal; ordinal notation support is forthcoming.", "ω²": "Ordinal omega squared; ordinal notation support is forthcoming.", "ω^ω": "Ordinal omega to omega; ordinal notation support is forthcoming.", "ε₀": "Epsilon nought; ordinal notation support is forthcoming.", α: "Ordinal parameter; ordinal notation support is forthcoming.", "Ordinal…": "Reserved for ordinal notation tools." };
 const storageKey = "elephant-calc/workbench/v1";
+const savePickerCancelled = Symbol("save-picker-cancelled");
 const maximumDisplayPrecision = 10_000;
 const precisionSliderSteps = 1000;
 const precisionToSlider = (digits) => digits <= 0 ? 0 : Math.round((Math.log10(Math.min(digits, maximumDisplayPrecision) + 1) / Math.log10(maximumDisplayPrecision + 1)) * precisionSliderSteps);
@@ -368,8 +369,27 @@ export function App() {
     worker.postMessage({ expression: sourceExpression, references: workerReferences, options: { calculationPrecision: exportPrecision, forceDecimal: true } });
   }
 
-  function downloadNotebook(notebook) {
-    const blob = new Blob([JSON.stringify(notebook, null, 2)], { type: "application/json" });
+  async function requestNotebookSaveHandle() {
+    if (typeof window.showSaveFilePicker !== "function") return null;
+    try {
+      return await window.showSaveFilePicker({
+        suggestedName: "elephant-calc-notebook.json",
+        types: [{ description: "Calculation notebook", accept: { "application/json": [".json"] } }],
+      });
+    } catch (error) {
+      return error?.name === "AbortError" ? savePickerCancelled : null;
+    }
+  }
+
+  async function downloadNotebook(notebook, saveHandle = null) {
+    const text = JSON.stringify(notebook, null, 2);
+    if (saveHandle) {
+      const writable = await saveHandle.createWritable();
+      await writable.write(text);
+      await writable.close();
+      return;
+    }
+    const blob = new Blob([text], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -449,10 +469,14 @@ export function App() {
   async function exportNotebook() {
     const includeAnswers = exportAnswers !== "none";
     const highPrecision = exportAnswers === "10m";
+    const saveHandle = await requestNotebookSaveHandle();
+    if (saveHandle === savePickerCancelled) return;
     setExportDialogOpen(false);
     if (!highPrecision) {
-      downloadNotebook(createNotebook({ expression, previewValue, includeActiveAnswer: completedExpressionRef.current === expression, history, nextId, view: currentViewSettings(), includeView: exportView, includeAnswers }));
-      setToast(includeAnswers ? "Notebook with answers downloaded" : "Notebook expressions downloaded");
+      try {
+        await downloadNotebook(createNotebook({ expression, previewValue, includeActiveAnswer: completedExpressionRef.current === expression, history, nextId, view: currentViewSettings(), includeView: exportView, includeAnswers }), saveHandle);
+        setToast(includeAnswers ? "Notebook with answers downloaded" : "Notebook expressions downloaded");
+      } catch { setToast("Notebook could not be saved"); }
       setTimeout(() => setToast(""), 1800);
       return;
     }
@@ -465,7 +489,7 @@ export function App() {
         activeValue = await calculateNotebookExpression(operation, expression, historyReferences(recalculatedHistory), { calculationPrecision: exportPrecision });
       }
       if (operation.cancelled) throw new Error("cancelled");
-      downloadNotebook(createNotebook({ expression, previewValue: activeValue, includeActiveAnswer: Boolean(activeValue), history: recalculatedHistory, nextId, view: currentViewSettings(), includeView: exportView, includeAnswers: true, highPrecision: true }));
+      await downloadNotebook(createNotebook({ expression, previewValue: activeValue, includeActiveAnswer: Boolean(activeValue), history: recalculatedHistory, nextId, view: currentViewSettings(), includeView: exportView, includeAnswers: true, highPrecision: true }), saveHandle);
       setTransferStatus("10M-digit notebook downloaded");
       setTimeout(() => setTransferStatus(""), 2200);
     } catch (error) {
