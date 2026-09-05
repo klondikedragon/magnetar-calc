@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FolderOpen, RotateCcw, Save } from "lucide-react";
+import { VirtuosoGrid } from "react-virtuoso";
 import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, exportPrecision, formatAutomatically, formatDigitCountForInspector, formatForHighPrecisionExport, inspectAutomatically, serializeValue } from "./engine";
 import { createNotebook, validateNotebook } from "./notebook";
 import { exampleWorkbenches } from "./exampleWorkbenches";
+import { filterFunctionCatalog, functionCategories, functionInsertion } from "./functionCatalog";
+import { useDismissiblePopover } from "./useDismissiblePopover";
 
 const initialHistory = [
   { id: 3, expression: "√(2) + π / 7", value: { kind: "number", number: 1.862012077376797, full: "1.862012077376796985004668721836731291106586140266324758279159345760390983" } },
@@ -12,7 +15,7 @@ const initialHistory = [
 
 const modes = ["Calculator", "Scientific", "Trigonometry", "Number theory", "Sequences", "Ordinal / hierarchy", "Programmer"];
 const keys = [
-  ["AC", "⌫", "(·)", "Ans", "", "="],
+  ["AC", "⌫", "(·)", "Ans", "f(x)", "="],
   ["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ"],
   ["sin", "cos", "tan", "ln", "log", "!"],
   ["π", "e", "τ", "abs", "mod", "%"],
@@ -33,7 +36,7 @@ const maximumDisplayPrecision = 10_000;
 const precisionSliderSteps = 1000;
 const precisionToSlider = (digits) => digits <= 0 ? 0 : Math.round((Math.log10(Math.min(digits, maximumDisplayPrecision) + 1) / Math.log10(maximumDisplayPrecision + 1)) * precisionSliderSteps);
 const sliderToPrecision = (position) => position <= 0 ? 0 : Math.round((10 ** ((position / precisionSliderSteps) * Math.log10(maximumDisplayPrecision + 1))) - 1);
-const keyLabels = { AC: "Clear expression", "⌫": "Backspace", "(·)": "Wrap selected text, or the whole expression, in parentheses", Ans: "Insert latest History result — @history(-1)", "=": "Calculate and save to History", "x²": "Square", "xʸ": "Raise to a power", "√x": "Square root", "ⁿ√x": "Nth root", "10ˣ": "Ten to a power", "eˣ": "Euler's number to a power", "π": "Insert pi", "τ": "Insert tau", "↑": "Insert Knuth up arrow", "↑↑": "Insert Knuth double up arrow", "−": "Subtract", "×": "Multiply", "÷": "Divide", "@n": "Insert the next sequence position", min: "Insert minimum function", max: "Insert maximum function" };
+const keyLabels = { AC: "Clear expression", "⌫": "Backspace", "(·)": "Wrap selected text, or the whole expression, in parentheses", Ans: "Insert latest History result — @history(-1)", "f(x)": "Browse and insert a function", "=": "Calculate and save to History", "x²": "Square", "xʸ": "Raise to a power", "√x": "Square root", "ⁿ√x": "Nth root", "10ˣ": "Ten to a power", "eˣ": "Euler's number to a power", "π": "Insert pi", "τ": "Insert tau", "↑": "Insert Knuth up arrow", "↑↑": "Insert Knuth double up arrow", "−": "Subtract", "×": "Multiply", "÷": "Divide", "@n": "Insert the next sequence position", min: "Insert minimum function", max: "Insert maximum function" };
 
 function isEditableElement(target) {
   return target instanceof HTMLElement && (target.matches("textarea, input, select, [contenteditable='true']") || target.isContentEditable);
@@ -81,6 +84,10 @@ export function App() {
   const [exportAnswers, setExportAnswers] = useState("none");
   const [exportView, setExportView] = useState(false);
   const [examplesOpen, setExamplesOpen] = useState(false);
+  const [functionBrowserOpen, setFunctionBrowserOpen] = useState(false);
+  const [functionQuery, setFunctionQuery] = useState("");
+  const [functionCategory, setFunctionCategory] = useState("All");
+  const [functionView, setFunctionView] = useState("compact");
   const [pendingImport, setPendingImport] = useState(null);
   const [transferStatus, setTransferStatus] = useState("");
   const [memoryOpen, setMemoryOpen] = useState(false);
@@ -96,8 +103,14 @@ export function App() {
   const exportWorkerRef = useRef(null);
   const notebookOperationRef = useRef(null);
   const importInputRef = useRef(null);
+  const examplesMenuRef = useRef(null);
+  const examplesButtonRef = useRef(null);
+  const functionSearchRef = useRef(null);
+  const functionPriorFocusRef = useRef(null);
+  const functionSelectionRef = useRef({ start: 0, end: 0 });
   const commitOnSuccessRef = useRef(false);
   const completedExpressionRef = useRef("");
+  useDismissiblePopover(examplesOpen, () => setExamplesOpen(false), examplesMenuRef, examplesButtonRef);
   const focusExpression = () => requestAnimationFrame(() => expressionRef.current?.focus());
   function sizeExpression(input = expressionRef.current) {
     if (!input) return;
@@ -117,6 +130,10 @@ export function App() {
     return () => strip?.removeEventListener("click", returnFocus);
   }, []);
   useEffect(() => {
+    examplesMenuRef.current = document.querySelector(".examples-menu");
+    examplesButtonRef.current = document.querySelector(".examples-button");
+  });
+  useEffect(() => {
     try {
       window.localStorage.setItem(storageKey, JSON.stringify({
         expression, nextId,
@@ -133,6 +150,7 @@ export function App() {
   const preview = formatAutomatically(previewValue, { base, precision, notation, groupDigits });
   const inspection = inspectAutomatically(previewValue, { base, precision, notation });
   const digitCount = digitCountAutomatically(previewValue, base);
+  const filteredFunctions = useMemo(() => filterFunctionCatalog(functionQuery, functionCategory), [functionQuery, functionCategory]);
 
   const referenceValues = useMemo(() => new Map([...history.flatMap((item, index) => {
     const value = item.value.kind === "number" ? String(item.value.number) : item.value.decimal?.toString?.() ?? "1e308";
@@ -221,6 +239,7 @@ export function App() {
   }
 
   function appendKey(key) {
+    if (key === "f(x)") { openFunctionBrowser(); return; }
     if (key === "=") { commit(); focusExpression(); return; }
     if (key === "AC") { setExpression(""); setToast(""); focusExpression(); return; }
     if (key === "⌫") {
@@ -286,7 +305,7 @@ export function App() {
 
   useEffect(() => {
     const routeKeyboard = (event) => {
-      if (memoryOpen || isEditableElement(event.target)) return;
+      if (memoryOpen || functionBrowserOpen || isEditableElement(event.target)) return;
       const selectable = selectableContainer(event.target);
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
         event.preventDefault();
@@ -305,7 +324,7 @@ export function App() {
     };
     window.addEventListener("keydown", routeKeyboard);
     return () => window.removeEventListener("keydown", routeKeyboard);
-  }, [expression, memoryOpen]);
+  }, [expression, memoryOpen, functionBrowserOpen]);
 
   useEffect(() => {
     if (!memoryOpen) return;
@@ -323,6 +342,18 @@ export function App() {
     window.addEventListener("keydown", trapFocus);
     return () => window.removeEventListener("keydown", trapFocus);
   }, [memoryOpen]);
+
+  useEffect(() => {
+    if (!functionBrowserOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeFunctionBrowser();
+    };
+    requestAnimationFrame(() => functionSearchRef.current?.focus());
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [functionBrowserOpen]);
 
   async function copyDisplayed(value) {
     try { await navigator.clipboard.writeText(formatAutomatically(value, { base, precision, notation, groupDigits }).text); setToast("Displayed result copied"); setTimeout(() => setToast(""), 1500); }
@@ -550,6 +581,42 @@ export function App() {
     catch { setToast("That file is not valid JSON"); setTimeout(() => setToast(""), 2200); }
   }
 
+  function openFunctionBrowser() {
+    const input = expressionRef.current;
+    functionPriorFocusRef.current = document.activeElement;
+    functionSelectionRef.current = {
+      start: input?.selectionStart ?? expression.length,
+      end: input?.selectionEnd ?? expression.length,
+    };
+    setFunctionQuery("");
+    setFunctionCategory("All");
+    setFunctionBrowserOpen(true);
+  }
+
+  function closeFunctionBrowser() {
+    setFunctionBrowserOpen(false);
+    requestAnimationFrame(() => {
+      const input = expressionRef.current;
+      input?.focus();
+      const { start, end } = functionSelectionRef.current;
+      input?.setSelectionRange(start, end);
+    });
+  }
+
+  function insertCatalogFunction(entry) {
+    const { start, end } = functionSelectionRef.current;
+    const selected = expression.slice(start, end);
+    const inserted = functionInsertion(entry, selected);
+    const next = `${expression.slice(0, start)}${inserted.text}${expression.slice(end)}`;
+    updatePreview(next);
+    setFunctionBrowserOpen(false);
+    requestAnimationFrame(() => {
+      expressionRef.current?.focus();
+      const caret = start + inserted.caret;
+      expressionRef.current?.setSelectionRange(caret, caret);
+    });
+  }
+
   function useHistory(item) {
     updatePreview(item.expression);
     requestAnimationFrame(() => expressionRef.current?.focus());
@@ -608,5 +675,6 @@ export function App() {
     {exportDialogOpen && <div className="notebook-overlay" role="dialog" aria-modal="true" aria-label="Download notebook"><div className="notebook-card"><div className="panel-heading"><div><p className="eyebrow">DOWNLOAD NOTEBOOK</p><h2>Choose what to include</h2></div><button className="quiet" onClick={() => setExportDialogOpen(false)}>Close</button></div><fieldset className="export-options"><legend>History contents</legend><label><input type="radio" name="answers" checked={exportAnswers === "none"} onChange={() => setExportAnswers("none")} /> Expressions only</label><label><input type="radio" name="answers" checked={exportAnswers === "current"} onChange={() => setExportAnswers("current")} /> With answers</label><label><input type="radio" name="answers" checked={exportAnswers === "10m"} onChange={() => setExportAnswers("10m")} /> With answers (10M digits)</label></fieldset><label className="export-view-option"><input type="checkbox" checked={exportView} onChange={(event) => setExportView(event.target.checked)} /> Include current view settings</label><p className="notebook-note">Imported notebooks always recalculate expressions; saved answers are archival metadata.</p><div className="notebook-actions"><button className="quiet" onClick={() => setExportDialogOpen(false)}>Cancel</button><button className="download-button" onClick={exportNotebook}>Download JSON</button></div></div></div>}
     {pendingImport && <div className="notebook-overlay" role="dialog" aria-modal="true" aria-label="Confirm notebook import"><div className="notebook-card"><p className="eyebrow">IMPORT NOTEBOOK</p><h2>Replace the current workbench?</h2><p className="notebook-note"><b>{pendingImport.label}</b> has {pendingImport.notebook.history.length} History entries. Every expression will be recalculated; saved answers are never trusted.</p>{pendingImport.notebook.view && <p className="notebook-note">Its saved view settings will also be applied.</p>}<div className="notebook-actions"><button className="quiet" onClick={() => setPendingImport(null)}>Cancel</button><button className="download-button" onClick={confirmNotebookImport}>Import and recalculate</button></div></div></div>}
     {memoryOpen && memory && <div className="memory-overlay" role="dialog" aria-modal="true" aria-label="Memory details"><div className="memory-card" ref={memoryDialogRef}><div className="panel-heading"><div><p className="eyebrow">MEMORY</p><h2>Accumulated expression</h2></div><button className="quiet" ref={memoryCloseRef} onClick={closeMemory}>Close</button></div><p className="memory-expression selectable-text">{memory.expression}</p><button className="memory-answer selectable-output" aria-label={resultLabel(memoryDisplay, "Memory result")} title={memoryTooltip} onClick={() => { if (!hasTextSelection()) closeMemory(); }}>{renderResultContent(memoryDisplay)}</button><InspectionDetails value={memory.value} data={memoryInspection} digits={memoryDigitCount} sourceExpression={memory.expression} /><div className="memory-actions"><button className="use-button" onClick={recallMemory}>Recall into expression</button><button className="quiet" onClick={() => { setMemory(null); closeMemory(); }}>Clear memory</button></div></div></div>}
+    {functionBrowserOpen && <div className="function-browser-overlay" role="dialog" aria-modal="true" aria-labelledby="function-browser-title"><section className={`function-browser-card ${functionView === "rich" ? "rich" : ""}`}><div className="panel-heading"><div><p className="eyebrow">FUNCTION LIBRARY</p><h2 id="function-browser-title">Insert a function</h2></div><button className="quiet" onClick={closeFunctionBrowser}>Close</button></div><input ref={functionSearchRef} className="function-search" type="search" aria-label="Search functions" placeholder="Search names, syntax, categories, and descriptions" value={functionQuery} onChange={(event) => setFunctionQuery(event.target.value)} /><div className="function-browser-controls"><label>Category <select value={functionCategory} onChange={(event) => setFunctionCategory(event.target.value)}>{functionCategories.map((category) => <option key={category}>{category}</option>)}</select></label><span className="function-count">{filteredFunctions.length} functions</span><div className="function-view-switch" aria-label="Function browser view"><button aria-pressed={functionView === "compact"} onClick={() => setFunctionView("compact")}>Compact</button><button aria-pressed={functionView === "rich"} onClick={() => setFunctionView("rich")}>Rich</button></div></div><div className="function-results" aria-label="Matching functions"><VirtuosoGrid data={filteredFunctions} computeItemKey={(_, entry) => entry.id} listClassName="function-grid" itemClassName="function-grid-item" increaseViewportBy={240} itemContent={(_, entry) => <button className="function-card" onClick={() => insertCatalogFunction(entry)} aria-label={`Insert ${entry.signature}: ${entry.name}`}><span className="function-signature">{entry.signature}</span><span className="function-name">{entry.name}</span>{functionView === "rich" && <><span className="function-category">{entry.category}</span><span className="function-description">{entry.description}</span>{entry.url && <a href={entry.url} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>Learn more</a>}</>}</button>} /></div><p className="function-browser-note">Search terms are combined; quote a phrase to keep its words together. Selecting expression text before opening the library wraps it when the chosen function accepts x.</p></section></div>}
   </main>;
 }
