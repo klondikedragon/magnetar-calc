@@ -487,6 +487,7 @@ function steinhausSides(value) {
 
 function steinhausValue(base, nesting, sides, options = {}) {
   const normalizedBase = String(base);
+  const displayedBase = options.parenthesizeBase ? `(${normalizedBase})` : normalizedBase;
   const normalizedNesting = String(nesting);
   const normalizedSides = steinhausSides(sides);
   const canonicalSides = normalizedSides.kind === "named" ? normalizedSides.name : normalizedSides.value;
@@ -494,8 +495,8 @@ function steinhausValue(base, nesting, sides, options = {}) {
   const name = options.name ?? null;
   const shape = options.shape ?? (normalizedSides.kind === "integer" ? Number(normalizedSides.value) : "megagon");
   const visual = options.visual ?? (shape === 3 ? "triangle" : shape === 4 ? "square" : shape === 5 ? "pentagon" : shape === "megagon" ? "megagon" : "polygon");
-  const short = name ?? (visual === "triangle" ? `△${normalizedBase}` : visual === "square" ? `□${normalizedBase}` : visual === "circle" ? `○${normalizedBase}` : visual === "pentagon" ? `⬠${normalizedBase}` : visual === "megagon" ? `Mega-gon(${normalizedBase})` : `P${canonicalSides}(${normalizedBase})`);
-  const derivation = name === "Mega"
+  const short = name ?? (visual === "triangle" ? `△${displayedBase}` : visual === "square" ? `□${displayedBase}` : visual === "circle" ? `○${displayedBase}` : visual === "pentagon" ? `⬠${displayedBase}` : visual === "megagon" ? `Mega-gon(${normalizedBase})` : `P${canonicalSides}(${displayedBase})`);
+  const derivation = options.derivation ?? (name === "Mega"
     ? "○2 = □²(2) = □256 = △²⁵⁶(256)"
     : name === "Megiston"
       ? "○10 = □¹⁰(10)"
@@ -507,7 +508,7 @@ function steinhausValue(base, nesting, sides, options = {}) {
             ? `□${normalizedBase} = △^${normalizedBase}(${normalizedBase})`
             : visual === "circle"
               ? `○${normalizedBase} = □^${normalizedBase}(${normalizedBase})`
-              : `P${canonicalSides}(${normalizedBase})`;
+              : `P${canonicalSides}(${normalizedBase})`);
   return {
     kind: "steinhaus-moser",
     construction: { base: normalizedBase, nesting: normalizedNesting, sides: normalizedSides },
@@ -535,6 +536,33 @@ function steinhausInteger(ast, references, label, options) {
   return BigInt(text);
 }
 
+function structuralSteinhausNotation(ast) {
+  if (ast.type === "atom") {
+    if (ast.implementationId === "steinhaus-mega") return "Mega";
+    if (ast.implementationId === "steinhaus-megiston") return "Megiston";
+    if (ast.implementationId === "steinhaus-moser") return "Moser";
+    return null;
+  }
+  if (ast.type !== "call" || !steinhausImplementations.has(ast.implementationId)) return null;
+  const base = structuralSteinhausNotation(ast.args[0]) ?? astToExpression(ast.args[0]);
+  if (ast.implementationId === "steinhaus-triangle") return `△(${base})`;
+  if (ast.implementationId === "steinhaus-square") return `□(${base})`;
+  if (ast.implementationId === "steinhaus-pentagon") return `⬠(${base})`;
+  if (ast.implementationId === "steinhaus-circle") return `○(${base})`;
+  if (ast.implementationId === "steinhaus-megagon") return `Mega-gon(${base})`;
+  if (ast.implementationId === "steinhaus-polygon") return `P${astToExpression(ast.args[1])}(${base})`;
+  return `SM(${base}; ${astToExpression(ast.args[1])}; ${astToExpression(ast.args[2])})`;
+}
+
+function steinhausBase(ast, references, options) {
+  try { return { integer: steinhausInteger(ast, references, "Steinhaus–Moser construction", options) }; }
+  catch (error) {
+    const notation = structuralSteinhausNotation(ast);
+    if (notation && /outside the structural input range/.test(error.message)) return { notation };
+    throw error;
+  }
+}
+
 function steinhausSide(ast, references, options) {
   if (ast.type === "atom" && ast.implementationId === "steinhaus-mega") return { kind: "mega" };
   const value = steinhausInteger(ast, references, "polygon sides", options);
@@ -558,7 +586,8 @@ function steinhausFromAst(ast, references, options) {
     return null;
   }
   if (ast.type !== "call" || !steinhausImplementations.has(ast.implementationId)) return null;
-  const base = steinhausInteger(ast.args[0], references, "Steinhaus–Moser construction", options);
+  const baseInput = steinhausBase(ast.args[0], references, options);
+  const base = baseInput.integer;
   let nesting = 1n;
   let sides;
   let visual;
@@ -576,7 +605,7 @@ function steinhausFromAst(ast, references, options) {
   // Keep the well-known named constructions stable no matter which equivalent
   // spelling the user chose. The circle convention is the canonical spelling
   // for Mega, although it is also a pentagon construction.
-  if (nesting === 1n && sides.kind === "integer" && sides.value === 5n) {
+  if (base && nesting === 1n && sides.kind === "integer" && sides.value === 5n) {
     if (base === 2n) {
       return steinhausValue(base, nesting, sides, {
         name: "Mega",
@@ -596,7 +625,7 @@ function steinhausFromAst(ast, references, options) {
       });
     }
   }
-  if (nesting === 1n && sides.kind === "mega" && base === 2n) {
+  if (base && nesting === 1n && sides.kind === "mega" && base === 2n) {
     return steinhausValue(base, nesting, sides, {
       name: "Moser",
       shape: "megagon",
@@ -606,6 +635,14 @@ function steinhausFromAst(ast, references, options) {
     });
   }
 
+  if (baseInput.notation) {
+    return steinhausValue(baseInput.notation, nesting, sides, {
+      shape: sides.kind === "integer" ? Number(sides.value) : "megagon",
+      visual,
+      parenthesizeBase: true,
+      derivation: `An exact symbolic construction enclosing ${baseInput.notation}; its numeric expansion is intentionally not attempted.`,
+    });
+  }
   const reduced = tryReduceSteinhaus(base, nesting, sides, options);
   if (reduced) return reduced;
   return steinhausValue(base, nesting, sides, { shape: sides.kind === "integer" ? Number(sides.value) : "megagon", visual });
@@ -617,7 +654,14 @@ function materializeExactStructuralAst(ast, references, options) {
   if (ast.type === "binary") return { ...ast, left: materializeExactStructuralAst(ast.left, references, options), right: materializeExactStructuralAst(ast.right, references, options) };
   if (ast.type !== "call") return ast;
 
-  const candidate = { ...ast, args: ast.args.map((argument) => materializeExactStructuralAst(argument, references, options)) };
+  const candidate = {
+    ...ast,
+    // Keep a structural base intact until its enclosing construction decides
+    // whether it is small enough to reduce or must remain symbolic.
+    args: ast.args.map((argument, index) => steinhausImplementations.has(ast.implementationId) && index === 0
+      ? argument
+      : materializeExactStructuralAst(argument, references, options)),
+  };
   const value = steinhausFromAst(candidate, references, options);
   if (value?.kind !== "decimal.js") return candidate;
   return { type: "number", raw: value.decimal.toString(), start: candidate.start, end: candidate.end };

@@ -28,3 +28,9 @@ test("composes a Steinhaus construction with a History reference", () => {
   assert.equal(value.decimal?.toString(), "4");
 });
 
+test("preserves an oversized nested Steinhaus construction symbolically", () => {
+  const value = evaluateAutomatically("sm_triangle(sm_triangle(256))");
+  assert.equal(value.kind, "steinhaus-moser");
+  assert.equal(value.short, "△(△(256))");
+  assert.equal(value.canonical, "SM(△(256); 1; 3)");
+});
