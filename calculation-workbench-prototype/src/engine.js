@@ -529,6 +529,40 @@ export function digitCountAutomatically(value, base = 10) {
   return null;
 }
 
+function groupWholeDigits(text) {
+  return text.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function compactDigitCount(decimal) {
+  const [coefficient, exponent = ""] = decimal.toExponential(2).split("e");
+  const cleanCoefficient = coefficient.replace(/(\.[0-9]*?)0+$/, "$1").replace(/\.$/, "");
+  return `${cleanCoefficient} × 10^${exponent.replace(/^\+/, "")}`;
+}
+
+// Digit counts are metadata, so they deliberately do not inherit the result
+// notation rules. Small counts are readable whole numbers; vast ones are compact.
+export function formatDigitCountForInspector(digitCount, options = {}) {
+  if (!digitCount?.value?.decimal) return null;
+  const decimal = digitCount.value.decimal;
+  if (digitCount.value.kind === "decimal.js") {
+    const roundedUp = decimal.ceil();
+    if (roundedUp.lt(10_000)) {
+      const plain = roundedUp.toFixed(0);
+      return options.groupDigits ? groupWholeDigits(plain) : plain;
+    }
+    return compactDigitCount(decimal);
+  }
+  if (digitCount.value.kind === "break-eternity" && decimal.layer === 0) {
+    const roundedUp = decimal.ceil();
+    if (roundedUp.lt(10_000)) {
+      const plain = roundedUp.toFixed(0);
+      return options.groupDigits ? groupWholeDigits(plain) : plain;
+    }
+    return compactDigitCount(decimal);
+  }
+  return formatAutomatically(digitCount.value, { base: 10, notation: "scientific", precision: 2 }).text;
+}
+
 function modularPower(base, exponent, modulus) {
   let result = 1n;
   let factor = base % modulus;

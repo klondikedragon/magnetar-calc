@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import BreakDecimal from "break_eternity.js";
-import { analyzePrimality, deserializeValue, evaluateAutomatically, evaluateWithAnalysis, formatAutomatically, formatForCopy, formatForHighPrecisionExport, inspectAutomatically, serializeValue } from "../src/engine.js";
+import { analyzePrimality, deserializeValue, digitCountAutomatically, evaluateAutomatically, evaluateWithAnalysis, formatAutomatically, formatDigitCountForInspector, formatForCopy, formatForHighPrecisionExport, inspectAutomatically, serializeValue } from "../src/engine.js";
 
 test("verifies prime and composite exact integers within the deterministic range", () => {
   const prime = analyzePrimality(evaluateAutomatically("97"));
@@ -99,4 +99,11 @@ test("accepts relative history references alongside stable history IDs", () => {
   assert.equal(evaluateAutomatically("@history(-1) + @history(-2)", references).decimal.toString(), "6");
   assert.equal(evaluateAutomatically("@history(19) + @history(4)", references).decimal.toString(), "6");
   assert.throws(() => evaluateAutomatically("@history(-3)", references), /unknown history reference/);
+});
+
+test("formats ordinary digit counts as whole numbers and immense counts compactly", () => {
+  const ordinary = digitCountAutomatically(evaluateAutomatically("10^3102"), 10);
+  assert.equal(formatDigitCountForInspector(ordinary, { groupDigits: true }), "3,103");
+  const large = digitCountAutomatically(evaluateAutomatically("10^10000"), 10);
+  assert.equal(formatDigitCountForInspector(large), "1 × 10^4");
 });
