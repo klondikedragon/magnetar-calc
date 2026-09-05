@@ -119,6 +119,23 @@ const maximumDecimalDisplayLength = 10_000;
 const maximumAutoExpandedLength = 64;
 export const exportPrecision = 10_000_000;
 
+function decimalPrecisionPlan(expression, options = {}) {
+  const maximumDigits = Number.isInteger(options.calculationPrecision)
+    ? Math.max(1, Math.min(options.calculationPrecision, 1e9))
+    : defaultCalculationPrecision;
+  const targetDigits = Number.isInteger(options.targetPrecision)
+    ? Math.max(1, Math.min(options.targetPrecision, maximumDigits))
+    : maximumDigits;
+  // Subtraction and mixed addition are the first places where cancellation can
+  // erase leading digits. The caller's calculationPrecision remains a hard
+  // ceiling; a future UI may request fewer target digits while retaining this
+  // small, deterministic guard band.
+  const cancellationSites = (expression.match(/[+\-−]/g) ?? []).length;
+  const guardDigits = Math.min(64, 16 + (cancellationSites * 4));
+  const workingDigits = Math.min(maximumDigits, targetDigits + guardDigits);
+  return { targetDigits, guardDigits: workingDigits > targetDigits ? guardDigits : 0, workingDigits, maximumDigits };
+}
+
 function tokenize(source) {
   return tokenizeExpression(source).filter((token) => token.type !== "eof").map((token) => token.value);
 }
@@ -445,9 +462,19 @@ export const breakEternityEngine = {
   id: "break_eternity.js",
   label: "BreakEternity · wide range",
   parse(expression) { return { expression, kind: "break-eternity" }; },
-  evaluate(expression, references = new Map()) { return evaluateBreak(expression, references); },
+  evaluate(expression, references = new Map()) {
+    const value = evaluateBreak(expression, references);
+    return {
+      ...value,
+      quality: {
+        certainty: value.decimal.layer > 0 ? "magnitude-only" : "estimated",
+        representation: "layered floating point",
+        retainedDigits: "~15",
+      },
+    };
+  },
   format(value, options = {}) { return value.kind === "break-eternity" ? formatBreak(value, options.base, options.precision, options.notation) : placeholderEngine.format(value, options); },
-  inspect(value, options = {}) { return { ...this.format(value, options), representation: value.kind === "break-eternity" ? `layer ${value.decimal.layer}` : "placeholder", exactness: "wide-range approximation", precision: "~15 significant digits" }; },
+  inspect(value, options = {}) { return { ...this.format(value, options), representation: value.kind === "break-eternity" ? `layer ${value.decimal.layer}` : "placeholder", exactness: value.quality?.certainty === "magnitude-only" ? "magnitude-only approximation" : "wide-range approximation", precision: "~15 significant digits" }; },
   digitCount(value, base = 10) {
     const absolute = value.decimal.abs();
     if (absolute.sign === 0 || absolute.lt(1)) return { value: { kind: "break-eternity", decimal: new BreakDecimal(1), full: "1" }, certainty: "exact" };
@@ -515,13 +542,23 @@ export const decimalEngine = {
   capabilities: { maxExponent: 9e15, precision: "configurable", layered: false, hyper: false },
   parse(expression) { return { expression, kind: "decimal.js" }; },
   evaluate(expression, references = new Map(), options = {}) {
-    const requestedPrecision = Number.isInteger(options.calculationPrecision)
-      ? Math.max(1, Math.min(options.calculationPrecision, 1e9))
-      : defaultCalculationPrecision;
+    const plan = decimalPrecisionPlan(expression, options);
+    const requestedPrecision = plan.workingDigits;
     const hasTrigonometricCall = /\b(?:sin|cos|tan)\s*\(/i.test(expression);
     const evaluateAtPrecision = (calculationPrecision) => {
       const Ctor = Decimal.clone({ precision: calculationPrecision, maxE: 9e15, minE: -9e15 });
-      return { ...evaluateBreak(expression, references, Ctor, "decimal.js"), calculationPrecision };
+      return {
+        ...evaluateBreak(expression, references, Ctor, "decimal.js"),
+        calculationPrecision,
+        quality: {
+          certainty: "rounded",
+          representation: "decimal",
+          targetDigits: plan.targetDigits,
+          guardDigits: Math.max(0, calculationPrecision - plan.targetDigits),
+          workingDigits: calculationPrecision,
+          retainedDigits: calculationPrecision,
+        },
+      };
     };
 
     try {
@@ -534,7 +571,19 @@ export const decimalEngine = {
     }
   },
   format(value, options = {}) { return value.kind === "decimal.js" ? formatDecimal(value, options.base, options.precision, options.notation) : breakEternityEngine.format(value, options); },
-  inspect(value, options = {}) { const calculationPrecision = value.calculationPrecision ?? 1000; return { ...this.format(value, options), engine: "decimal.js", representation: "arbitrary-precision decimal", exactness: value.exactInteger ? "exact integer" : `rounded to ${calculationPrecision.toLocaleString()} significant digits`, precision: `${calculationPrecision.toLocaleString()} significant digits internal` }; },
+  inspect(value, options = {}) {
+    const calculationPrecision = value.quality?.workingDigits ?? value.calculationPrecision ?? 1000;
+    const targetDigits = value.quality?.targetDigits ?? calculationPrecision;
+    return {
+      ...this.format(value, options),
+      engine: "decimal.js",
+      representation: "arbitrary-precision decimal",
+      exactness: value.quality?.certainty === "exact" || value.exactInteger ? "exact integer" : `rounded to ${calculationPrecision.toLocaleString()} significant digits`,
+      precision: calculationPrecision === targetDigits
+        ? `${calculationPrecision.toLocaleString()} significant digits internal`
+        : `${calculationPrecision.toLocaleString()} working digits; ${targetDigits.toLocaleString()} target`,
+    };
+  },
   digitCount(value, base = 10) {
     const absolute = value.decimal.abs();
     if (absolute.isZero() || absolute.lt(1)) return { value: { kind: "decimal.js", decimal: new Decimal(1), full: "1" }, certainty: "exact" };
@@ -598,6 +647,7 @@ function steinhausValue(base, nesting, sides, options = {}) {
     full: canonical,
     engineId: "steinhaus-moser-structural",
     engineLabel: "Steinhaus–Moser · structural",
+    quality: { certainty: "symbolic-exact", representation: "structural construction", retainedDigits: "not expanded" },
   };
 }
 
@@ -829,7 +879,11 @@ function attachExactInteger(value, expression, references) {
   try {
     const exactInteger = exactIntegerExpression(expression, references).toString();
     if (value.decimal.toFixed() !== exactInteger) return value;
-    return { ...value, exactInteger };
+    return {
+      ...value,
+      exactInteger,
+      quality: { ...(value.quality ?? {}), certainty: "exact", representation: "integer", retainedDigits: "all" },
+    };
   } catch { return value; }
 }
 
@@ -852,7 +906,7 @@ export function evaluateAutomatically(expression, references = new Map(), option
   if (structuralHierarchy) {
     const level = Number(structuralHierarchy[1]);
     const argument = structuralHierarchy[2];
-    if (level >= 4 || Number(argument) > 4) return { kind: "hierarchy", level, argument, full: `F_${level}(${argument})`, engineId: "wainer-structural", engineLabel: "Wainer hierarchy · structural" };
+    if (level >= 4 || Number(argument) > 4) return { kind: "hierarchy", level, argument, full: `F_${level}(${argument})`, engineId: "wainer-structural", engineLabel: "Wainer hierarchy · structural", quality: { certainty: "symbolic-exact", representation: "hierarchy form", retainedDigits: "not expanded" } };
   }
   const ordered = options.forceDecimal ? [decimalEngine] : looksBeyondDecimal(normalizedExpression) ? [breakEternityEngine, decimalEngine] : engineRegistry;
   let lastError;

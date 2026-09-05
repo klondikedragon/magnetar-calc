@@ -38,6 +38,7 @@ export function exactInteger(integer) {
     engineId: "native-exact",
     engineLabel: "Native exact",
     certainty: "exact",
+    quality: { certainty: "exact", representation: "integer", retainedDigits: "all" },
   };
 }
 
@@ -59,6 +60,7 @@ export function exactRational(numerator, denominator = 1n) {
     engineId: "native-exact",
     engineLabel: "Native exact",
     certainty: "exact",
+    quality: { certainty: "exact", representation: "rational", retainedDigits: "all" },
   };
 }
 

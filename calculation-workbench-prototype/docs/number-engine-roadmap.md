@@ -28,10 +28,10 @@ expressions are always recomputed.
   high-precision numeric overlap cases.
 - [x] Add exact integer values and route integer-safe arithmetic through them.
 - [x] Add normalized exact rational values and preserve exact division.
-- [ ] Make precision, certainty, engine provenance, and serialization common
+- [x] Make precision, certainty, engine provenance, and serialization common
   result metadata.
-- [ ] Use adaptive Decimal.js working precision with explicit retry and
-  retained-precision reporting.
+- [x] Use a bounded Decimal.js target-plus-guard precision policy and report
+  retained working precision. Precision retry remains deferred.
 
 ## Structural-value program
 
