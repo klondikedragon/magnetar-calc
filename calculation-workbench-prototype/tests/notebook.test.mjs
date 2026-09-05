@@ -28,3 +28,9 @@ test("imports preserve Fibonacci order and relative expressions while discarding
 test("rejects invalid or duplicate History IDs", () => {
   assert.throws(() => validateNotebook({ schemaVersion: 1, activeExpression: { expression: "1" }, history: [{ id: 1, expression: "1" }, { id: 1, expression: "2" }] }), /invalid/);
 });
+
+test("normalizes an unsafe or stale next History ID", () => {
+  const base = { schemaVersion: 1, activeExpression: { expression: "1" }, history: [{ id: 7, expression: "1" }] };
+  assert.equal(validateNotebook({ ...base, nextHistoryId: 4 }).nextId, 8);
+  assert.equal(validateNotebook({ ...base, nextHistoryId: Number.MAX_SAFE_INTEGER + 1 }).nextId, 8);
+});

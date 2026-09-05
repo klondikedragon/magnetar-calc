@@ -49,9 +49,12 @@ export function validateNotebook(candidate) {
     ids.add(entry.id);
     return { id: entry.id, expression: entry.expression };
   });
-  const nextId = Number.isInteger(candidate.nextHistoryId) && candidate.nextHistoryId > 0
-    ? Math.max(candidate.nextHistoryId, ...history.map((entry) => entry.id + 1), 1)
-    : Math.max(...history.map((entry) => entry.id + 1), 1);
+  const firstUnusedId = Math.max(...history.map((entry) => entry.id + 1), 1);
+  // An imported counter may be stale or malformed. Only a safe, unused positive
+  // integer can be retained; otherwise continue immediately after the maximum ID.
+  const nextId = Number.isSafeInteger(candidate.nextHistoryId) && candidate.nextHistoryId >= firstUnusedId
+    ? candidate.nextHistoryId
+    : firstUnusedId;
   const view = candidate.viewSettings && typeof candidate.viewSettings === "object" ? candidate.viewSettings : null;
   return { expression: candidate.activeExpression.expression, history, nextId, view };
 }
