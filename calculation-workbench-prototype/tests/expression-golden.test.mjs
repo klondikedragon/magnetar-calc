@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluateAutomatically } from "../src/engine.js";
+import { evaluateAutomatically, formatAutomatically } from "../src/engine.js";
 
 // This suite is the compatibility contract for the expression language.  New
 // parser/extension work must add a case here before it changes supported syntax.
@@ -47,6 +47,8 @@ const successfulExpressions = [
   ["Jacobsthal", "jacobsthal(10)", "341"],
   ["Stirling second kind", "stirling2(5, 2)", "15"],
   ["binomial", "binomial(10, 3)", "120"],
+  ["Steinhaus triangle", "sm_triangle(3)", "27"],
+  ["Steinhaus square", "sm_square(2)", "256"],
   ["Wainer F1", "fgh1(8)", "16"],
   ["Wainer F2", "fgh2(3)", "24"],
   ["Wainer F3", "fgh3(2)", "2048"],
@@ -77,3 +79,17 @@ for (const [name, expression, error] of rejectedExpressions) {
     assert.throws(() => evaluateAutomatically(expression), error);
   });
 }
+
+test("keeps Steinhaus–Moser constructions structural beyond the exact frontier", () => {
+  const mega = evaluateAutomatically("mega");
+  const moser = evaluateAutomatically("moser");
+  const square = evaluateAutomatically("sm_square(3)");
+  assert.equal(mega.kind, "steinhaus-moser");
+  assert.equal(mega.name, "Mega");
+  assert.equal(mega.canonical, "SM(2; 1; 5)");
+  assert.equal(moser.canonical, "SM(2; 1; Mega)");
+  assert.equal(square.short, "□3");
+  assert.equal(evaluateAutomatically("sm_circle(2)").name, "Mega");
+  assert.equal(evaluateAutomatically("sm_megagon(2)").name, "Moser");
+  assert.equal(formatAutomatically(mega).canonical, "SM(2; 1; 5)");
+});

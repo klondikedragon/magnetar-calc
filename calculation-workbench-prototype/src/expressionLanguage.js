@@ -41,6 +41,16 @@ export const expressionImplementations = [
   ["sequence-jacobsthal", { calls: ["jacobsthal"], kind: "sequence" }],
   ["combinatorics-stirling-second", { calls: ["stirling2"], kind: "sequence" }],
   ["combinatorics-binomial", { calls: ["binomial"], kind: "sequence" }],
+  ["steinhaus-triangle", { calls: ["sm_triangle"], kind: "structural" }],
+  ["steinhaus-square", { calls: ["sm_square"], kind: "structural" }],
+  ["steinhaus-pentagon", { calls: ["sm_pentagon"], kind: "structural" }],
+  ["steinhaus-circle", { calls: ["sm_circle"], kind: "structural" }],
+  ["steinhaus-polygon", { calls: ["sm_polygon"], kind: "structural" }],
+  ["steinhaus-canonical", { calls: ["sm"], kind: "structural" }],
+  ["steinhaus-megagon", { calls: ["sm_megagon"], kind: "structural" }],
+  ["steinhaus-mega", { atoms: ["mega"], kind: "structural", value: "mega" }],
+  ["steinhaus-megiston", { atoms: ["megiston"], kind: "structural", value: "megiston" }],
+  ["steinhaus-moser", { atoms: ["moser"], kind: "structural", value: "moser" }],
   ["hierarchy-fgh1", { calls: ["fgh1"], kind: "hierarchy" }],
   ["hierarchy-fgh2", { calls: ["fgh2"], kind: "hierarchy" }],
   ["hierarchy-fgh3", { calls: ["fgh3"], kind: "hierarchy" }],
@@ -123,7 +133,10 @@ export function tokenizeExpression(source) {
       continue;
     }
     if (/[A-Za-z]/.test(character)) {
-      const match = source.slice(index).match(/^[A-Za-z][A-Za-z0-9]*/);
+      // Underscores are part of an identifier rather than an operator. This
+      // keeps expressive catalog syntax such as sm_triangle(n) available
+      // without adding one-off tokenization rules per function.
+      const match = source.slice(index).match(/^[A-Za-z][A-Za-z0-9_]*/);
       index += match[0].length;
       push("identifier", match[0], start, index);
       continue;

@@ -2,7 +2,7 @@
 // arbitrary-precision and logarithmic backends can be added behind this API.
 import BreakDecimal from "break_eternity.js";
 import Decimal from "decimal.js";
-import { parseExpression, tokenizeExpression } from "./expressionLanguage.js";
+import { astToExpression, parseExpression, tokenizeExpression } from "./expressionLanguage.js";
 
 function formatNumber(number, base, precision = 48, notation = "auto") {
   if (!Number.isFinite(number)) return { sign: "", significand: "Not a finite number", exponent: "", text: "Not a finite number", full: String(number) };
@@ -475,6 +475,138 @@ function looksBeyondDecimal(expression) {
   return /↑{3,}|\^\^\^|\b(?:iteratedexp|iteratedlog|slog|pent)\b/i.test(expression) || /(?:\^|e)\s*[+-]?\d{16,}/i.test(expression);
 }
 
+const steinhausImplementations = new Set([
+  "steinhaus-triangle", "steinhaus-square", "steinhaus-pentagon", "steinhaus-circle",
+  "steinhaus-polygon", "steinhaus-canonical", "steinhaus-megagon",
+]);
+
+function steinhausSides(value) {
+  if (value.kind === "mega") return { kind: "named", name: "Mega" };
+  return { kind: "integer", value: String(value.value) };
+}
+
+function steinhausValue(base, nesting, sides, options = {}) {
+  const normalizedBase = String(base);
+  const normalizedNesting = String(nesting);
+  const normalizedSides = steinhausSides(sides);
+  const canonicalSides = normalizedSides.kind === "named" ? normalizedSides.name : normalizedSides.value;
+  const canonical = `SM(${normalizedBase}; ${normalizedNesting}; ${canonicalSides})`;
+  const name = options.name ?? null;
+  const shape = options.shape ?? (normalizedSides.kind === "integer" ? Number(normalizedSides.value) : "megagon");
+  const visual = options.visual ?? (shape === 3 ? "triangle" : shape === 4 ? "square" : shape === 5 ? "pentagon" : shape === "megagon" ? "megagon" : "polygon");
+  const short = name ?? (visual === "triangle" ? `△${normalizedBase}` : visual === "square" ? `□${normalizedBase}` : visual === "circle" ? `○${normalizedBase}` : visual === "pentagon" ? `⬠${normalizedBase}` : visual === "megagon" ? `Mega-gon(${normalizedBase})` : `P${canonicalSides}(${normalizedBase})`);
+  const derivation = name === "Mega"
+    ? "○2 = □²(2) = □256 = △²⁵⁶(256)"
+    : name === "Megiston"
+      ? "○10 = □¹⁰(10)"
+      : name === "Moser"
+        ? "Mega-gon(2) = SM(2; 1; Mega)"
+        : visual === "triangle"
+          ? `△${normalizedBase} = ${normalizedBase}^${normalizedBase}`
+          : visual === "square"
+            ? `□${normalizedBase} = △^${normalizedBase}(${normalizedBase})`
+            : visual === "circle"
+              ? `○${normalizedBase} = □^${normalizedBase}(${normalizedBase})`
+              : `P${canonicalSides}(${normalizedBase})`;
+  return {
+    kind: "steinhaus-moser",
+    construction: { base: normalizedBase, nesting: normalizedNesting, sides: normalizedSides },
+    name,
+    shape,
+    visual,
+    short,
+    canonical,
+    derivation,
+    full: canonical,
+    engineId: "steinhaus-moser-structural",
+    engineLabel: "Steinhaus–Moser · structural",
+  };
+}
+
+function steinhausInteger(ast, references, label) {
+  const value = decimalEngine.evaluate(astToExpression(ast), references);
+  if (!value.decimal.isInteger() || value.decimal.lt(1)) throw new Error(`${label} requires a positive exact integer`);
+  const text = value.decimal.toFixed(0);
+  if (!/^\d+$/.test(text) || text.length > 6) throw new Error(`${label} is outside the structural input range`);
+  return BigInt(text);
+}
+
+function steinhausSide(ast, references) {
+  if (ast.type === "atom" && ast.implementationId === "steinhaus-mega") return { kind: "mega" };
+  const value = steinhausInteger(ast, references, "polygon sides");
+  if (value < 3n) throw new Error("polygon sides must be at least 3");
+  return { kind: "integer", value };
+}
+
+function tryReduceSteinhaus(base, nesting, sides, options) {
+  if (sides.kind !== "integer" || nesting !== 1n) return null;
+  const sideCount = Number(sides.value);
+  if (sideCount === 3 && base <= 300n) return decimalEngine.evaluate(`${base}^${base}`, new Map(), options);
+  if (sideCount === 4 && base === 2n) return decimalEngine.evaluate("256", new Map(), options);
+  return null;
+}
+
+function steinhausFromAst(ast, references, options) {
+  if (ast.type === "atom") {
+    if (ast.implementationId === "steinhaus-mega") return steinhausValue(2, 1, { kind: "integer", value: 5 }, { name: "Mega", shape: 5, visual: "circle" });
+    if (ast.implementationId === "steinhaus-megiston") return steinhausValue(10, 1, { kind: "integer", value: 5 }, { name: "Megiston", shape: 5, visual: "circle" });
+    if (ast.implementationId === "steinhaus-moser") return steinhausValue(2, 1, { kind: "mega" }, { name: "Moser", shape: "megagon", visual: "megagon" });
+    return null;
+  }
+  if (ast.type !== "call" || !steinhausImplementations.has(ast.implementationId)) return null;
+  const base = steinhausInteger(ast.args[0], references, "Steinhaus–Moser construction");
+  let nesting = 1n;
+  let sides;
+  let visual;
+  if (ast.implementationId === "steinhaus-triangle") { sides = { kind: "integer", value: 3n }; visual = "triangle"; }
+  if (ast.implementationId === "steinhaus-square") { sides = { kind: "integer", value: 4n }; visual = "square"; }
+  if (ast.implementationId === "steinhaus-pentagon") { sides = { kind: "integer", value: 5n }; visual = "pentagon"; }
+  if (ast.implementationId === "steinhaus-circle") { sides = { kind: "integer", value: 5n }; visual = "circle"; }
+  if (ast.implementationId === "steinhaus-polygon") { if (ast.args.length !== 2) throw new Error("sm_polygon requires a number and side count"); sides = steinhausSide(ast.args[1], references); }
+  if (ast.implementationId === "steinhaus-megagon") { sides = { kind: "mega" }; visual = "megagon"; }
+  if (ast.implementationId === "steinhaus-canonical") {
+    if (ast.args.length !== 3) throw new Error("sm requires a number, nesting count, and side count");
+    nesting = steinhausInteger(ast.args[1], references, "nesting count");
+    sides = steinhausSide(ast.args[2], references);
+  }
+  // Keep the well-known named constructions stable no matter which equivalent
+  // spelling the user chose. The circle convention is the canonical spelling
+  // for Mega, although it is also a pentagon construction.
+  if (nesting === 1n && sides.kind === "integer" && sides.value === 5n) {
+    if (base === 2n) {
+      return steinhausValue(base, nesting, sides, {
+        name: "Mega",
+        shape: 5,
+        visual: "circle",
+        canonical: "SM(2; 1; 5)",
+        derivation: "○2 = □²(2) = □256 = △²⁵⁶(256)",
+      });
+    }
+    if (base === 10n) {
+      return steinhausValue(base, nesting, sides, {
+        name: "Megiston",
+        shape: 5,
+        visual: "circle",
+        canonical: "SM(10; 1; 5)",
+        derivation: "○10, the circle construction on 10",
+      });
+    }
+  }
+  if (nesting === 1n && sides.kind === "mega" && base === 2n) {
+    return steinhausValue(base, nesting, sides, {
+      name: "Moser",
+      shape: "megagon",
+      visual: "megagon",
+      canonical: "SM(2; 1; Mega)",
+      derivation: "the Mega-gon construction on 2",
+    });
+  }
+
+  const reduced = tryReduceSteinhaus(base, nesting, sides, options);
+  if (reduced) return reduced;
+  return steinhausValue(base, nesting, sides, { shape: sides.kind === "integer" ? Number(sides.value) : "megagon", visual });
+}
+
 export const engineRegistry = [decimalEngine, breakEternityEngine];
 
 // Decimal.js intentionally rounds arithmetic to its configured precision.  For
@@ -559,6 +691,16 @@ function attachExactInteger(value, expression, references) {
 }
 
 export function evaluateAutomatically(expression, references = new Map(), options = {}) {
+  const ast = parseExpression(expression);
+  const structural = steinhausFromAst(ast, references, options);
+  if (structural) {
+    if (structural.kind === "decimal.js") return attachExactInteger({ ...structural, engineId: decimalEngine.id, engineLabel: decimalEngine.label }, expression, references);
+    return structural;
+  }
+  if (ast.type === "reference") {
+    const reference = references.get(ast.token);
+    if (reference?.kind === "steinhaus-moser") return reference;
+  }
   const structuralHierarchy = expression.trim().match(/^fgh([3-5])\(\s*(\d+)\s*\)$/i);
   if (structuralHierarchy) {
     const level = Number(structuralHierarchy[1]);
@@ -577,6 +719,21 @@ export function evaluateAutomatically(expression, references = new Map(), option
 }
 
 export function formatAutomatically(value, options = {}) {
+  if (value.kind === "steinhaus-moser") return {
+    sign: "",
+    significand: value.short,
+    exponent: "",
+    text: value.short,
+    full: value.canonical,
+    steinhaus: true,
+    shape: value.shape,
+    visual: value.visual,
+    base: value.construction.base,
+    canonical: value.canonical,
+    derivation: value.derivation,
+    name: value.name,
+    showSteinhausShape: Boolean(options.showSteinhausShape),
+  };
   if (value.kind === "hierarchy") return { sign: "", significand: `F${value.level}(${value.argument})`, exponent: "", text: `F${value.level}(${value.argument})`, full: value.full, hierarchy: true };
   const formatted = value.kind === "decimal.js"
     ? decimalEngine.format(value, options)
@@ -619,6 +776,15 @@ export function formatForHighPrecisionExport(value, options = {}) {
 }
 
 export function inspectAutomatically(value, options = {}) {
+  if (value.kind === "steinhaus-moser") return {
+    ...formatAutomatically(value, options),
+    engine: "Steinhaus–Moser",
+    representation: "polygon construction",
+    exactness: "symbolic exact",
+    precision: "not expanded",
+    canonical: value.canonical,
+    derivation: value.derivation,
+  };
   if (value.kind === "hierarchy") return { ...formatAutomatically(value, options), engine: "Wainer hierarchy", representation: `F${value.level} structural form`, exactness: "symbolic exact", precision: "not expanded" };
   if (value.kind === "decimal.js") return decimalEngine.inspect(value, options);
   if (value.kind === "break-eternity") return { ...breakEternityEngine.inspect(value, options), engine: value.engineLabel ?? "break_eternity.js" };

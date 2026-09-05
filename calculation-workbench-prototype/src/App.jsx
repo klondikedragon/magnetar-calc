@@ -38,6 +38,22 @@ const precisionToSlider = (digits) => digits <= 0 ? 0 : Math.round((Math.log10(M
 const sliderToPrecision = (position) => position <= 0 ? 0 : Math.round((10 ** ((position / precisionSliderSteps) * Math.log10(maximumDisplayPrecision + 1))) - 1);
 const keyLabels = { AC: "Clear expression", "⌫": "Backspace", "(·)": "Wrap selected text, or the whole expression, in parentheses", Ans: "Insert latest History result — @history(-1)", "f(x)": "Browse and insert a function", "=": "Calculate and save to History", "x²": "Square", "xʸ": "Raise to a power", "√x": "Square root", "ⁿ√x": "Nth root", "10ˣ": "Ten to a power", "eˣ": "Euler's number to a power", "π": "Insert pi", "τ": "Insert tau", "↑": "Insert Knuth up arrow", "↑↑": "Insert Knuth double up arrow", "−": "Subtract", "×": "Multiply", "÷": "Divide", "@n": "Insert the next sequence position", min: "Insert minimum function", max: "Insert maximum function" };
 
+function polygonPoints(sides) {
+  return Array.from({ length: sides }, (_, index) => {
+    const angle = (-Math.PI / 2) + ((index * Math.PI * 2) / sides);
+    return `${30 + (25 * Math.cos(angle))},${30 + (25 * Math.sin(angle))}`;
+  }).join(" ");
+}
+
+function SteinhausOutput({ formatted, compact = false }) {
+  if (compact && formatted.name) return <span className="steinhaus-name">{formatted.name}</span>;
+  if (formatted.visual === "megagon") return <span className="steinhaus-text">Mega-gon({formatted.base})</span>;
+  const sides = formatted.visual === "triangle" ? 3 : formatted.visual === "square" ? 4 : formatted.visual === "circle" ? 0 : Number(formatted.shape);
+  if ((formatted.visual !== "circle" && (!Number.isFinite(sides) || sides < 3 || sides > 8)) || String(formatted.base).length > 3) return <span className="steinhaus-text">{formatted.significand}</span>;
+  const label = formatted.visual === "circle" ? `Steinhaus circle enclosing ${formatted.base}` : `${sides}-sided Steinhaus polygon enclosing ${formatted.base}`;
+  return <span className="steinhaus-enclosure" title={formatted.canonical}><svg viewBox="0 0 60 60" role="img" aria-label={label}>{formatted.visual === "circle" ? <circle cx="30" cy="30" r="25" /> : <polygon points={polygonPoints(sides)} />}<text x="30" y="36" textAnchor="middle">{formatted.base}</text></svg></span>;
+}
+
 function isEditableElement(target) {
   return target instanceof HTMLElement && (target.matches("textarea, input, select, [contenteditable='true']") || target.isContentEditable);
 }
@@ -147,7 +163,7 @@ export function App() {
   const precisionLabel = useMemo(() => precision.toLocaleString(), [precision]);
   const paletteKeys = activeMode === "Number theory" ? numberTheoryKeys : activeMode === "Sequences" ? sequenceKeys : activeMode === "Programmer" ? keys : activeMode === "Trigonometry" ? keys : activeMode === "Scientific" ? keys : activeMode === "Ordinal / hierarchy" ? ordinalKeys : keys;
   const paletteHelp = activeMode === "Sequences" ? sequenceHelp : activeMode === "Ordinal / hierarchy" ? ordinalHelp : {};
-  const preview = formatAutomatically(previewValue, { base, precision, notation, groupDigits });
+  const preview = formatAutomatically(previewValue, { base, precision, notation, groupDigits, showSteinhausShape: true });
   const inspection = inspectAutomatically(previewValue, { base, precision, notation });
   const digitCount = digitCountAutomatically(previewValue, base);
   const filteredFunctions = useMemo(() => filterFunctionCatalog(functionQuery, functionCategory), [functionQuery, functionCategory]);
@@ -356,7 +372,12 @@ export function App() {
   }, [functionBrowserOpen]);
 
   async function copyDisplayed(value) {
-    try { await navigator.clipboard.writeText(formatAutomatically(value, { base, precision, notation, groupDigits }).text); setToast("Displayed result copied"); setTimeout(() => setToast(""), 1500); }
+    try {
+      const text = value?.kind === "steinhaus-moser" ? value.canonical : formatAutomatically(value, { base, precision, notation, groupDigits }).text;
+      await navigator.clipboard.writeText(text);
+      setToast(value?.kind === "steinhaus-moser" ? "Canonical construction copied" : "Displayed result copied");
+      setTimeout(() => setToast(""), 1500);
+    }
     catch { setToast("Copy is available in the browser"); }
   }
 
@@ -627,6 +648,7 @@ export function App() {
   function copyResult(value) { if (!hasTextSelection()) copyDisplayed(value); }
   function toggleInspector() { if (!hasTextSelection()) setInspectorOpen((open) => !open); }
   function resultLabel(formatted, action) {
+    if (formatted.steinhaus) return `${action}: ${formatted.name ?? formatted.canonical}; exact structural construction`;
     if (formatted.tower) return `${action}: ten, layer ${formatted.towerDepth}, magnitude ${formatted.towerMagnitude}; magnitude-only approximation`;
     if (formatted.knuth) return `${action}: ${formatted.knuthBase}, ${formatted.knuthArrows.length} Knuth up arrows, ${formatted.knuthHeight}`;
     return `${action}: ${formatted.text}`;
@@ -648,7 +670,8 @@ export function App() {
   const formatOptions = { base, notation, groupDigits };
   const previewTooltip = formatAutomatically(previewValue, { base, precision, notation, groupDigits }).text;
   const memoryTooltip = memory ? formatAutomatically(memory.value, { base, precision, notation, groupDigits }).text : "";
-  const renderResultContent = (formatted) => {
+  const renderResultContent = (formatted, compact = false) => {
+    if (formatted.steinhaus) return <><span className="sign">{formatted.sign}</span><SteinhausOutput formatted={formatted} compact={compact || !formatted.showSteinhausShape} /></>;
     if (formatted.knuth) return <><span className="sign">{formatted.sign}</span><span className="knuth-output">{formatted.knuthBase} {formatted.knuthArrows} {formatted.knuthHeight}</span></>;
     if (formatted.tower) {
       if (formatted.towerExpanded) return <><span className="sign">{formatted.sign}</span><span className="tower-expanded">{formatted.significand}</span></>;
@@ -656,7 +679,7 @@ export function App() {
     }
     return <><span className="sign">{formatted.sign}</span><span>{formatted.significand}</span>{formatted.exponent && <span className="result-exponent">× {base === 10 ? "10" : base}<sup>{formatted.exponent}</sup></span>}</>;
   };
-  const InspectionDetails = ({ value, data, digits, sourceExpression }) => <div className="inspector inspection-details"><div><span>engine</span><b>{data.engine ?? value.engineLabel ?? "placeholder"}</b></div><div><span>representation</span><b>{data.representation ?? "native"}</b></div><div><span>precision</span><b>{data.precision ?? `${precisionLabel} digits`}</b></div><div><span>status</span><b>{data.precisionLost ? "magnitude-only" : data.exactness ?? "approximate"}</b></div>{value.exactInteger && <div><span>integer</span><b>exact</b></div>}{primalityLabel(value) && <div><span>primality</span><b>{primalityLabel(value)}{value.primality?.method && <small> · {value.primality.method}</small>}</b></div>}{digits?.value && <div className="digit-count"><span>base-{base} digits</span><b>{formatDigitCountForInspector(digits, { groupDigits })}</b><small>{digits.certainty}</small></div>}<div className="inspector-actions"><button onClick={() => copyDisplayed(value)} title="Copy the result in the current display format">Copy</button><button onClick={() => exportHighPrecision(sourceExpression)} disabled={Boolean(exportWorkerRef.current)} title="Recalculate this expression with up to 10,000,000 significant digits, then copy it">Copy (10M digits)</button></div></div>;
+  const InspectionDetails = ({ value, data, digits, sourceExpression }) => <div className="inspector inspection-details"><div><span>engine</span><b>{data.engine ?? value.engineLabel ?? "placeholder"}</b></div><div><span>representation</span><b>{data.representation ?? "native"}</b></div><div><span>precision</span><b>{data.precision ?? `${precisionLabel} digits`}</b></div><div><span>status</span><b>{data.precisionLost ? "magnitude-only" : data.exactness ?? "approximate"}</b></div>{data.canonical && <div className="structural-detail"><span>canonical form</span><b>{data.canonical}</b><small>{data.derivation}</small></div>}{value.exactInteger && <div><span>integer</span><b>exact</b></div>}{primalityLabel(value) && <div><span>primality</span><b>{primalityLabel(value)}{value.primality?.method && <small> · {value.primality.method}</small>}</b></div>}{digits?.value && <div className="digit-count"><span>base-{base} digits</span><b>{formatDigitCountForInspector(digits, { groupDigits })}</b><small>{digits.certainty}</small></div>}<div className="inspector-actions"><button onClick={() => copyDisplayed(value)} title={value?.kind === "steinhaus-moser" ? "Copy the canonical construction syntax" : "Copy the result in the current display format"}>Copy</button>{value?.kind !== "steinhaus-moser" && <button onClick={() => exportHighPrecision(sourceExpression)} disabled={Boolean(exportWorkerRef.current)} title="Recalculate this expression with up to 10,000,000 significant digits, then copy it">Copy (10M digits)</button>}</div></div>;
   function recallMemory() { if (memory?.expression) { updatePreview(`${expression}${expression ? " " : ""}(${memory.expression})`); requestAnimationFrame(() => expressionRef.current?.focus()); setMemoryOpen(false); } }
   return <main className="app-shell">
     <section className={`workbench ${expressionLines >= 5 ? "expression-tall" : ""}`}>
@@ -665,7 +688,7 @@ export function App() {
         <textarea ref={expressionRef} rows="1" aria-label="Expression" value={expression} onChange={(event) => updatePreview(event.target.value)} onInput={(event) => sizeExpression(event.currentTarget)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); commit(); } if (event.key === "Escape") { event.preventDefault(); updatePreview(""); } }} />
         <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={previewTooltip} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{(showCalculating || calculation.commitOnSuccess) ? <span className="calculation-status" role="status">◌ Computing exact result {calculation.commitOnSuccess && "↳ History"}<button onClick={cancelCalculation}>Cancel</button></span> : calculation.status === "timed-out" ? <span className="toast">Exact calculation reached its time budget</span> : toast && <span className="toast" role="status">{toast}</span>}</div>
         {inspectorOpen && <InspectionDetails value={previewValue} data={inspection} digits={digitCount} sourceExpression={expression} />}
-        <div className="result-meta"><span>sign <b className="selectable-text">{preview.sign || "+"}</b></span><span>exponent <b className="selectable-text">{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"}</span>{primalityLabel(previewValue) && <span className={`primality-meta ${previewValue.primality.kind}`} title={previewValue.primality.method}>{primalityLabel(previewValue)}</span>}<span>click result to inspect</span></div>
+        <div className="result-meta">{preview.steinhaus ? <><span>form <b className="selectable-text">{preview.canonical}</b></span><span>symbolic exact</span><span>{previewValue.engineLabel}</span></> : <><span>sign <b className="selectable-text">{preview.sign || "+"}</b></span><span>exponent <b className="selectable-text">{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"}</span>{primalityLabel(previewValue) && <span className={`primality-meta ${previewValue.primality.kind}`} title={previewValue.primality.method}>{primalityLabel(previewValue)}</span>}</>}<span>click result to inspect</span></div>
         {exportStatus && <span className="export-status" role="status">{exportStatus}{exportWorkerRef.current && <button onClick={cancelHighPrecisionExport}>Cancel</button>}</span>}
         <span className="sr-only" role="status" aria-live="polite">{expressionError || toast || exportStatus}</span>
       </section>
