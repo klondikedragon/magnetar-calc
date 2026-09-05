@@ -165,7 +165,11 @@ function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, 
   const valueFor = (token) => {
     if (references.has(token)) {
       const reference = references.get(token);
-      return reference && typeof reference.add === "function" ? reference : new Ctor(String(reference));
+      // Worker references are restored as calculator value wrappers. Always
+      // rebuild them through this evaluation's constructor so Decimal clones
+      // and BreakEternity use their own compatible numeric instance.
+      const numericReference = reference?.decimal ?? reference;
+      return new Ctor(numericReference?.toString?.() ?? String(numericReference));
     }
     if (/^@history/.test(token)) throw new Error("unknown history reference");
     if (/^\d/.test(token)) return new Ctor(token);

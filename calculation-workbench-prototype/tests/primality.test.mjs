@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import BreakDecimal from "break_eternity.js";
-import { analyzePrimality, evaluateAutomatically, evaluateWithAnalysis, formatAutomatically, formatForCopy, formatForHighPrecisionExport, inspectAutomatically } from "../src/engine.js";
+import { analyzePrimality, deserializeValue, evaluateAutomatically, evaluateWithAnalysis, formatAutomatically, formatForCopy, formatForHighPrecisionExport, inspectAutomatically, serializeValue } from "../src/engine.js";
 
 test("verifies prime and composite exact integers within the deterministic range", () => {
   const prime = analyzePrimality(evaluateAutomatically("97"));
@@ -91,11 +91,12 @@ test("zero display places uses a zero-place scientific coefficient for non-integ
 });
 
 test("accepts relative history references alongside stable history IDs", () => {
+  const restoredOne = deserializeValue(serializeValue(evaluateAutomatically("1")));
   const references = new Map([
-    ["@history(19)", "5"], ["@history(4)", "7"],
-    ["@history(-1)", "5"], ["@history(-2)", "7"],
+    ["@history(19)", "5"], ["@history(4)", restoredOne],
+    ["@history(-1)", "5"], ["@history(-2)", restoredOne],
   ]);
-  assert.equal(evaluateAutomatically("@history(-1) + @history(-2)", references).decimal.toString(), "12");
-  assert.equal(evaluateAutomatically("@history(19) + @history(4)", references).decimal.toString(), "12");
+  assert.equal(evaluateAutomatically("@history(-1) + @history(-2)", references).decimal.toString(), "6");
+  assert.equal(evaluateAutomatically("@history(19) + @history(4)", references).decimal.toString(), "6");
   assert.throws(() => evaluateAutomatically("@history(-3)", references), /unknown history reference/);
 });
