@@ -138,6 +138,24 @@ function tetrateBreak(base, height) {
   return base.tetrate(integralHeight);
 }
 
+function signedIntegerArgument(value, label, minimum = -10_000, maximum = 10_000) {
+  const number = value.toNumber();
+  if (!Number.isSafeInteger(number) || number < minimum || number > maximum) throw new Error(`${label} requires an integer between ${minimum.toLocaleString()} and ${maximum.toLocaleString()}`);
+  return number;
+}
+
+function numericMethod(value, method) {
+  if (typeof value[method] !== "function") throw new Error(`${method} is outside the current engine range`);
+  return value[method]();
+}
+
+function roundDecimal(value, places, Ctor) {
+  if (typeof value.toDecimalPlaces === "function" && places >= 0) return value.toDecimalPlaces(places);
+  const scale = new Ctor(10).pow(Math.abs(places));
+  const scaled = places >= 0 ? value.mul(scale) : value.div(scale);
+  return numericMethod(scaled, "round").mul(places >= 0 ? new Ctor(1).div(scale) : scale);
+}
+
 function evaluateBreakLegacy(expression, references = new Map(), Ctor = BreakDecimal, kind = "break-eternity") {
   const tokens = tokenize(expression);
   let position = 0;
@@ -244,6 +262,35 @@ function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, 
       if (node.implementationId === "logarithm-base-ten") return args[0].log10();
       if (node.implementationId === "arithmetic-abs") return args[0].abs();
       if (node.implementationId === "exponential-exp") return args[0].exp();
+      if (node.implementationId === "scientific-floor") return numericMethod(args[0], "floor");
+      if (node.implementationId === "scientific-ceil") return numericMethod(args[0], "ceil");
+      if (node.implementationId === "scientific-trunc") return numericMethod(args[0], "trunc");
+      if (node.implementationId === "scientific-cube-root") return numericMethod(args[0], "cbrt");
+      if (node.implementationId === "logarithm-base-two") return numericMethod(args[0], "log2");
+      if (node.implementationId === "scientific-round") return roundDecimal(args[0], args.length > 1 ? signedIntegerArgument(args[1], "round places") : 0, Ctor);
+      if (node.implementationId === "scientific-round-significant") {
+        const digits = signedIntegerArgument(args[1], "significant digits", 1, 10_000);
+        if (typeof args[0].toSignificantDigits !== "function") throw new Error("significant-digit rounding is outside the current engine range");
+        return args[0].toSignificantDigits(digits);
+      }
+      if (node.implementationId === "scientific-round-to") {
+        if (!args[1] || !args[1].gt(0)) throw new Error("round increment must be positive");
+        if (typeof args[0].toNearest === "function") return args[0].toNearest(args[1]);
+        return numericMethod(args[0].div(args[1]), "round").mul(args[1]);
+      }
+      if (node.implementationId === "trigonometry-atan2") {
+        if (typeof Ctor.atan2 === "function") return Ctor.atan2(args[0], args[1]);
+        if (typeof args[0].atan2 === "function") return args[0].atan2(args[1]);
+        throw new Error("atan2 is outside the current engine range");
+      }
+      if (node.implementationId === "trigonometry-radians") return args[0].mul(engineConstant("pi", Ctor)).div(180);
+      if (node.implementationId === "trigonometry-degrees") return args[0].mul(180).div(engineConstant("pi", Ctor));
+      const namedMethods = {
+        "trigonometry-asin": "asin", "trigonometry-acos": "acos", "trigonometry-atan": "atan",
+        "trigonometry-sinh": "sinh", "trigonometry-cosh": "cosh", "trigonometry-tanh": "tanh",
+        "trigonometry-asinh": "asinh", "trigonometry-acosh": "acosh", "trigonometry-atanh": "atanh",
+      };
+      if (namedMethods[node.implementationId]) return numericMethod(args[0], namedMethods[node.implementationId]);
       if (node.implementationId === "arithmetic-min") return args.reduce((lowest, value) => value.lt(lowest) ? value : lowest);
       if (node.implementationId === "arithmetic-max") return args.reduce((highest, value) => value.gt(highest) ? value : highest);
       if (node.implementationId.startsWith("sequence-")) return bigIntegerSequence(node.name, args, Ctor);
