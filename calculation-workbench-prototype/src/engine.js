@@ -53,7 +53,7 @@ export const placeholderEngine = {
   convertBase(value, base) { return this.format(value, { base }); },
 };
 
-const tokenPattern = /\s*(\d+(?:\.\d*)?(?:e[+-]?\d+)?|@history\(-?\d+\)|[A-Za-z][A-Za-z0-9]*|↑+|\^+|[()+\-*/%!×÷−πτφ√])/gy;
+const tokenPattern = /\s*(\d+(?:\.\d*)?(?:e[+-]?\d+)?|@history\(-?\d+\)|@n|[A-Za-z][A-Za-z0-9]*|↑+|\^+|[(),+\-*/%!×÷−πτφ√])/gy;
 const maximumExpressionLength = 12000;
 const maximumTokenCount = 2400;
 const maximumTetrationHeight = 10000000;
@@ -76,9 +76,10 @@ function tokenize(source) {
     if (tokens.length > maximumTokenCount) throw new Error("expression is too complex");
     index = tokenPattern.lastIndex;
   }
-  const functions = new Set(["sqrt", "sin", "cos", "tan", "ln", "log", "abs", "exp", "fib", "lucas", "prime", "primepi", "partition", "catalan", "bell", "triangular", "harmonic", "jacobsthal", "stirling2", "binomial", "fgh1", "fgh2", "fgh3"]);
-  const endsAtom = (token) => /^\d/.test(token) || token.startsWith("@history") || ["π", "τ", "φ", "e", "pi", "tau", "phi", ")", "!"].includes(token.toLowerCase());
-  const startsAtom = (token) => /^\d/.test(token) || token.startsWith("@history") || ["π", "τ", "φ", "e", "pi", "tau", "phi", "("].includes(token.toLowerCase()) || functions.has(token.toLowerCase());
+  const functions = new Set(["sqrt", "sin", "cos", "tan", "ln", "log", "abs", "exp", "min", "max", "fib", "lucas", "prime", "primepi", "partition", "catalan", "bell", "triangular", "harmonic", "jacobsthal", "stirling2", "binomial", "fgh1", "fgh2", "fgh3"]);
+  const isReference = (token) => token === "@n" || token.startsWith("@history");
+  const endsAtom = (token) => /^\d/.test(token) || isReference(token) || ["π", "τ", "φ", "e", "pi", "tau", "phi", ")", "!"].includes(token.toLowerCase());
+  const startsAtom = (token) => /^\d/.test(token) || isReference(token) || ["π", "τ", "φ", "e", "pi", "tau", "phi", "("].includes(token.toLowerCase()) || functions.has(token.toLowerCase());
   const expanded = [];
   tokens.forEach((token) => { if (expanded.length && endsAtom(expanded[expanded.length - 1]) && startsAtom(token)) expanded.push("*"); expanded.push(token); });
   return expanded;
@@ -190,6 +191,8 @@ function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, 
       const funcs = { sqrt: "sqrt", sin: "sin", cos: "cos", tan: "tan", ln: "ln", log: "log10", abs: "abs", exp: "exp" };
       const fn = funcs[token.toLowerCase()];
       if (fn) return args[0][fn]();
+      if (token.toLowerCase() === "min") return args.reduce((lowest, value) => value.lt(lowest) ? value : lowest);
+      if (token.toLowerCase() === "max") return args.reduce((highest, value) => value.gt(highest) ? value : highest);
       if (["fib", "lucas", "prime", "primepi", "partition", "catalan", "bell", "triangular", "harmonic", "jacobsthal", "stirling2", "binomial"].includes(token.toLowerCase())) return bigIntegerSequence(token.toLowerCase(), args, Ctor);
       if (/^fgh[1-3]$/.test(token.toLowerCase())) return wainerFinite(Number(token.at(-1)), args[0], Ctor);
       throw new Error("unknown function");
@@ -391,13 +394,14 @@ function exactIntegerExpression(expression, references = new Map()) {
   };
   const referencedInteger = (token) => {
     const reference = references.get(token);
-    if (reference && typeof reference === "object" && /^-?\d+$/.test(reference.exactInteger ?? "")) return BigInt(reference.exactInteger);
+    const integer = typeof reference === "string" ? reference : reference?.exactInteger;
+    if (/^-?\d+$/.test(integer ?? "")) return BigInt(integer);
     throw new Error("history value is not an exact integer");
   };
   const primary = () => {
     const token = take();
     if (token === "(") { const result = addSub(); if (take() !== ")") throw new Error("missing parenthesis"); return result; }
-    if (token?.startsWith("@history")) return referencedInteger(token);
+    if (token?.startsWith("@history") || token === "@n") return referencedInteger(token);
     if (/^\d+$/.test(token)) return BigInt(token);
     throw new Error("not an integer-only expression");
   };

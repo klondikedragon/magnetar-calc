@@ -107,3 +107,10 @@ test("formats ordinary digit counts as whole numbers and immense counts compactl
   const large = digitCountAutomatically(evaluateAutomatically("10^10000"), 10);
   assert.equal(formatDigitCountForInspector(large), "1 × 10^4");
 });
+
+test("evaluates the dynamic sequence position and extrema functions", () => {
+  const references = new Map([["@n", "7"]]);
+  assert.equal(evaluateAutomatically("@n^2", references).decimal.toString(), "49");
+  assert.equal(evaluateAutomatically("min(8, @n, 12)", references).decimal.toString(), "7");
+  assert.equal(evaluateAutomatically("max(8, @n, 12)", references).decimal.toString(), "12");
+});
