@@ -63,7 +63,7 @@ test("display places do not change Decimal engine precision", () => {
   const value = evaluateAutomatically("1 / 7");
   const displayed = formatAutomatically(value, { base: 10, notation: "auto", precision: 2 });
   assert.equal(value.decimal.sd(), 1000);
-  assert.equal(displayed.text, "1.43 × 10^-1");
+  assert.equal(displayed.text, "0.14");
   assert.equal(inspectAutomatically(value).precision, "1,000 significant digits internal");
 });
 
@@ -83,11 +83,23 @@ test("high-precision export formats all recomputed Decimal digits without changi
   assert.equal(evaluateAutomatically("1 / 7").decimal.sd(), 1000);
 });
 
-test("zero display places uses a zero-place scientific coefficient for non-integers", () => {
+test("Auto uses an expanded zero-place value while it remains compact", () => {
   const decimal = formatAutomatically(evaluateAutomatically("3103.8"), { base: 10, precision: 0, notation: "auto" });
-  assert.equal(decimal.text, "3 × 10^3");
+  assert.equal(decimal.text, "3104");
   const scientific = formatAutomatically(evaluateAutomatically("3103.8"), { base: 10, precision: 0, notation: "scientific" });
   assert.equal(scientific.text, "3 × 10^3");
+});
+
+test("Auto expands compact rounded and fractional Decimal results", () => {
+  const integer = formatAutomatically(evaluateAutomatically("4 * 6.0"), { base: 10, precision: 48, notation: "auto" });
+  const fraction = formatAutomatically(evaluateAutomatically("1 / 7"), { base: 10, precision: 10, notation: "auto" });
+  assert.equal(integer.text, "24");
+  assert.equal(fraction.text, "0.1428571429");
+});
+
+test("Auto keeps untrusted oversized Decimal integers scientific", () => {
+  const result = formatAutomatically(evaluateAutomatically("round(10^1000)"), { base: 10, precision: 48, notation: "auto" });
+  assert.equal(result.exponent, "1000");
 });
 
 test("accepts relative history references alongside stable history IDs", () => {

@@ -59,6 +59,7 @@ export const defaultCalculationPrecision = 1_000;
 // The view can request a wider display range, but normal calculations never
 // manufacture digits beyond the stored 1,000-digit Decimal value.
 const maximumDecimalDisplayLength = 10_000;
+const maximumAutoExpandedLength = 64;
 export const exportPrecision = 10_000_000;
 
 function tokenize(source) {
@@ -424,10 +425,14 @@ function formatDecimal(value, base = 10, precision = 48, notation = "auto") {
   }
   const decimalPlaces = Math.max(0, Math.min(precision, defaultCalculationPrecision));
   const fixedRounded = magnitude.toDecimalPlaces(decimalPlaces);
-  const showDecimal = notation === "decimal" && decimalExpandedLength(fixedRounded) <= maximumDecimalDisplayLength;
-  // Auto leaves the unscaled form to trusted exact integers. Other values use
-  // a coefficient with the requested number of fractional places.
-  const raw = notation === "decimal" && showDecimal ? fixedRounded.toFixed(decimalPlaces) : magnitude.toExponential(decimalPlaces);
+  const expandedLength = decimalExpandedLength(fixedRounded);
+  const autoExpandedLimit = Math.max(16, Math.min(maximumAutoExpandedLength, decimalPlaces + 2));
+  const showDecimal = (notation === "decimal" && expandedLength <= maximumDecimalDisplayLength)
+    || (notation === "auto" && expandedLength <= autoExpandedLimit);
+  // Auto chooses the more readable expanded form when it fits. Exactness stays
+  // in inspection metadata; a rounded Decimal result such as 4 * 6.0 should
+  // still read as 24 rather than 2.4 × 10^1.
+  const raw = showDecimal ? fixedRounded.toFixed(decimalPlaces) : magnitude.toExponential(decimalPlaces);
   let [coefficient, exponent = ""] = raw.split("e");
   exponent = exponent.replace(/^\+/, "");
   const cleanCoefficient = coefficient.replace(/(\.[0-9]*?)0+$/, "$1").replace(/\.$/, "");
