@@ -26,8 +26,8 @@ expressions are always recomputed.
 
 - [x] Establish independent SymPy/mpmath validation for exact and
   high-precision numeric overlap cases.
-- [ ] Add exact integer values and route integer-safe arithmetic through them.
-- [ ] Add normalized exact rational values and preserve exact division.
+- [x] Add exact integer values and route integer-safe arithmetic through them.
+- [x] Add normalized exact rational values and preserve exact division.
 - [ ] Make precision, certainty, engine provenance, and serialization common
   result metadata.
 - [ ] Use adaptive Decimal.js working precision with explicit retry and

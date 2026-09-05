@@ -3,6 +3,7 @@
 import BreakDecimal from "break_eternity.js";
 import Decimal from "decimal.js";
 import { astToExpression, parseExpression, tokenizeExpression } from "./expressionLanguage.js";
+import { deserializeExactValue, exactParts, isExactValue, serializeExactValue, tryEvaluateExact } from "./exactValues.js";
 
 function formatNumber(number, base, precision = 48, notation = "auto") {
   if (!Number.isFinite(number)) return { sign: "", significand: "Not a finite number", exponent: "", text: "Not a finite number", full: String(number) };
@@ -21,6 +22,58 @@ function formatNumber(number, base, precision = 48, notation = "auto") {
   let [coefficient, exponent = ""] = raw.split("e");
   exponent = exponent.replace(/^\+/, "");
   return { sign, significand: coefficient, exponent, text: exponent ? `${sign}${coefficient} × ${base}^${exponent}` : `${sign}${coefficient}`, full: String(number) };
+}
+
+function formatExactInteger(value, base = 10, precision = 48, notation = "auto") {
+  const integer = exactParts(value).numerator;
+  const sign = integer < 0n ? "−" : "";
+  const digits = (integer < 0n ? -integer : integer).toString(base).toUpperCase();
+  if (base !== 10 || !["scientific", "engineering"].includes(notation) || digits === "0") {
+    return { sign, significand: digits, exponent: "", text: `${sign}${digits}`, full: `${sign}${digits}`, exactIntegerDisplay: true };
+  }
+  const scientificExponent = digits.length - 1;
+  const displayDigits = Math.max(1, Math.min(digits.length, Math.max(1, precision + 1)));
+  let coefficient = digits.slice(0, displayDigits);
+  if (coefficient.length > 1) coefficient = `${coefficient[0]}.${coefficient.slice(1)}`;
+  let exponent = scientificExponent;
+  if (notation === "engineering") {
+    const shift = scientificExponent % 3;
+    const engineeringDigits = Math.max(1, Math.min(digits.length, displayDigits + shift));
+    coefficient = digits.slice(0, engineeringDigits);
+    if (coefficient.length > shift + 1) coefficient = `${coefficient.slice(0, shift + 1)}.${coefficient.slice(shift + 1)}`;
+    exponent -= shift;
+  }
+  return { sign, significand: coefficient, exponent: String(exponent), text: `${sign}${coefficient} × 10^${exponent}`, full: `${sign}${digits}` };
+}
+
+function formatExactRational(value, base = 10, precision = 48, notation = "auto") {
+  const { numerator, denominator } = exactParts(value);
+  if (denominator === 1n) return formatExactInteger(value, base, precision, notation);
+  if (base !== 10) {
+    const sign = numerator < 0n ? "−" : "";
+    const top = (numerator < 0n ? -numerator : numerator).toString(base).toUpperCase();
+    const bottom = denominator.toString(base).toUpperCase();
+    return { sign, significand: `${top}/${bottom}`, exponent: "", text: `${sign}${top}/${bottom}`, full: `${numerator}/${denominator}`, exactRationalDisplay: true };
+  }
+  const calculationPrecision = Math.max(48, Math.min(defaultCalculationPrecision, Math.max(precision + 20, 80)));
+  const Ctor = Decimal.clone({ precision: calculationPrecision, maxE: 9e15, minE: -9e15 });
+  const decimal = new Ctor(numerator.toString()).div(denominator.toString());
+  return { ...formatDecimal({ kind: "decimal.js", decimal }, base, precision, notation), full: `${numerator}/${denominator}`, exactRationalDisplay: true };
+}
+
+function formatExact(value, options = {}) {
+  if (value.kind === "exact-integer") return formatExactInteger(value, options.base ?? 10, options.precision ?? 48, options.notation ?? "auto");
+  return formatExactRational(value, options.base ?? 10, options.precision ?? 48, options.notation ?? "auto");
+}
+
+// Compatibility numeric shadow for existing calculation paths. The exact
+// BigInt components remain authoritative; this Decimal is never used to claim
+// that a rational has become exact.
+function hydrateExactValue(value) {
+  if (!isExactValue(value) || value.decimal) return value;
+  const { numerator, denominator } = exactParts(value);
+  const Ctor = Decimal.clone({ precision: defaultCalculationPrecision, maxE: 9e15, minE: -9e15 });
+  return { ...value, decimal: new Ctor(numerator.toString()).div(denominator.toString()) };
 }
 
 function renderValue(value, base, precision, notation) {
@@ -172,6 +225,10 @@ function evaluateBreakLegacy(expression, references = new Map(), Ctor = BreakDec
       // Worker references are restored as calculator value wrappers. Always
       // rebuild them through this evaluation's constructor so Decimal clones
       // and BreakEternity use their own compatible numeric instance.
+      if (isExactValue(reference)) {
+        const { numerator, denominator } = exactParts(reference);
+        return new Ctor(numerator.toString()).div(new Ctor(denominator.toString()));
+      }
       const numericReference = reference?.decimal ?? reference;
       return new Ctor(numericReference?.toString?.() ?? String(numericReference));
     }
@@ -224,6 +281,10 @@ function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, 
   const valueForReference = (token) => {
     if (!references.has(token)) throw new Error("unknown history reference");
     const reference = references.get(token);
+    if (isExactValue(reference)) {
+      const { numerator, denominator } = exactParts(reference);
+      return new Ctor(numerator.toString()).div(new Ctor(denominator.toString()));
+    }
     const numericReference = reference?.decimal ?? reference;
     return new Ctor(numericReference?.toString?.() ?? String(numericReference));
   };
@@ -545,6 +606,12 @@ function steinhausInteger(ast, references, label, options) {
   // construction. Route them through the normal dispatcher instead of asking
   // Decimal.js to understand every catalog function itself.
   const value = evaluateAutomatically(astToExpression(ast), references, options);
+  if (value.kind === "exact-integer") {
+    const integer = exactParts(value).numerator;
+    if (integer < 1n) throw new Error(`${label} requires a positive exact integer`);
+    if (integer.toString().length > 6) throw new Error(`${label} is outside the structural input range`);
+    return integer;
+  }
   if (value.kind !== "decimal.js") throw new Error(`${label} requires a positive exact integer`);
   if (!value.decimal.isInteger() || value.decimal.lt(1)) throw new Error(`${label} requires a positive exact integer`);
   const text = value.decimal.toFixed(0);
@@ -767,7 +834,10 @@ function attachExactInteger(value, expression, references) {
 }
 
 export function evaluateAutomatically(expression, references = new Map(), options = {}) {
-  const ast = materializeExactStructuralAst(parseExpression(expression), references, options);
+  const parsedAst = parseExpression(expression);
+  const exact = options.forceDecimal ? null : tryEvaluateExact(parsedAst, references);
+  if (exact) return hydrateExactValue(exact);
+  const ast = materializeExactStructuralAst(parsedAst, references, options);
   const normalizedExpression = astToExpression(ast);
   const structural = steinhausFromAst(ast, references, options);
   if (structural) {
@@ -796,6 +866,13 @@ export function evaluateAutomatically(expression, references = new Map(), option
 }
 
 export function formatAutomatically(value, options = {}) {
+  if (isExactValue(value)) {
+    const formatted = formatExact(value, options);
+    if (!options.groupDigits || options.base !== 10 || formatted.exponent || !/^\d+(?:\.\d+)?$/.test(formatted.significand)) return formatted;
+    const [whole, fraction] = formatted.significand.split(".");
+    const grouped = `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${fraction ? `.${fraction}` : ""}`;
+    return { ...formatted, significand: grouped, text: `${formatted.sign}${grouped}` };
+  }
   if (value.kind === "steinhaus-moser") return {
     sign: "",
     significand: value.short,
@@ -833,6 +910,7 @@ export function formatForCopy(value, options = {}) {
 // Export is deliberately separate from normal rendering: it may format a
 // worker-produced 10M-digit Decimal without raising the on-screen ceiling.
 export function formatForHighPrecisionExport(value, options = {}) {
+  if (isExactValue(value)) return value.kind === "exact-integer" ? exactParts(value).numerator.toString() : `${value.numerator}/${value.denominator}`;
   const maximumLength = options.maximumLength ?? exportPrecision;
   if (value?.kind !== "decimal.js" || options.base !== 10) return formatForCopy(value, options);
   const decimal = value.decimal;
@@ -853,6 +931,20 @@ export function formatForHighPrecisionExport(value, options = {}) {
 }
 
 export function inspectAutomatically(value, options = {}) {
+  if (value.kind === "exact-integer") return {
+    ...formatAutomatically(value, options),
+    engine: "Native exact",
+    representation: "arbitrary-size integer",
+    exactness: "exact",
+    precision: "all digits retained",
+  };
+  if (value.kind === "exact-rational") return {
+    ...formatAutomatically(value, options),
+    engine: "Native exact",
+    representation: "reduced rational",
+    exactness: "exact",
+    precision: "exact numerator and denominator",
+  };
   if (value.kind === "steinhaus-moser") return {
     ...formatAutomatically(value, options),
     engine: "Steinhaus–Moser",
@@ -870,6 +962,11 @@ export function inspectAutomatically(value, options = {}) {
 
 export function digitCountAutomatically(value, base = 10) {
   try {
+    if (value.kind === "exact-integer") {
+      const integer = exactParts(value).numerator;
+      const digits = (integer < 0n ? -integer : integer).toString(base).length;
+      return { value: { kind: "exact-integer", integer: BigInt(digits), exactInteger: String(digits), full: String(digits) }, certainty: "exact" };
+    }
     if (value.kind === "decimal.js") return decimalEngine.digitCount(value, base);
     if (value.kind === "break-eternity") return breakEternityEngine.digitCount(value, base);
   } catch { /* An unsupported alternate engine simply omits this optional inspection detail. */ }
@@ -889,6 +986,10 @@ function compactDigitCount(decimal) {
 // Digit counts are metadata, so they deliberately do not inherit the result
 // notation rules. Small counts are readable whole numbers; vast ones are compact.
 export function formatDigitCountForInspector(digitCount, options = {}) {
+  if (digitCount?.value?.kind === "exact-integer") {
+    const text = digitCount.value.exactInteger ?? digitCount.value.integer.toString();
+    return options.groupDigits ? groupWholeDigits(text) : text;
+  }
   if (!digitCount?.value?.decimal) return null;
   const decimal = digitCount.value.decimal;
   if (digitCount.value.kind === "decimal.js") {
@@ -959,6 +1060,7 @@ export function evaluateWithAnalysis(expression, references = new Map(), options
 // rebuild the appropriate numeric object when a calculator session is restored.
 export function serializeValue(value) {
   if (!value) return null;
+  if (isExactValue(value)) return serializeExactValue(value);
   if (value.kind === "decimal.js" || value.kind === "break-eternity") {
     return { ...value, decimal: value.decimal?.toString?.() ?? value.full };
   }
@@ -967,6 +1069,7 @@ export function serializeValue(value) {
 
 export function deserializeValue(value) {
   if (!value) return null;
+  if (value.kind === "exact-integer" || value.kind === "exact-rational") return hydrateExactValue(deserializeExactValue(value));
   if (value.kind === "decimal.js") return { ...value, decimal: new Decimal(value.decimal) };
   if (value.kind === "break-eternity") return { ...value, decimal: new BreakDecimal(value.decimal) };
   return value;

@@ -59,12 +59,12 @@ test("clipboard formatting honors Decimal notation at full engine precision", ()
   assert.equal(grouped, "16,191,462,721,115,671,781,777,559,070,120,513,664,958,590,125,499,158,514,329,308,740,975,788,034");
 });
 
-test("display places do not change Decimal engine precision", () => {
+test("display places do not change exact rational representation", () => {
   const value = evaluateAutomatically("1 / 7");
   const displayed = formatAutomatically(value, { base: 10, notation: "auto", precision: 2 });
-  assert.equal(value.decimal.sd(), 1000);
+  assert.equal(value.kind, "exact-rational");
   assert.equal(displayed.text, "0.14");
-  assert.equal(inspectAutomatically(value).precision, "1,000 significant digits internal");
+  assert.equal(inspectAutomatically(value).precision, "exact numerator and denominator");
 });
 
 test("Auto displays trusted exact integers in full regardless of fractional places", () => {

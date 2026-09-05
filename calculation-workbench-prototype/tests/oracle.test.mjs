@@ -49,7 +49,9 @@ test("matches SymPy exact integer and sequence results", () => {
   const cases = oracleCases.filter((item) => item.kind === "exact");
   const oracle = runOracle(cases);
   for (const item of cases) {
-    assert.equal(calculatorDecimal(item.expression, 200).toFixed(), oracle[item.id], item.expression);
+    const value = evaluateAutomatically(item.expression, new Map(), { calculationPrecision: 200 });
+    assert.equal(value.kind, "exact-integer", `${item.expression} should remain exact`);
+    assert.equal(value.exactInteger, oracle[item.id], item.expression);
   }
 });
 

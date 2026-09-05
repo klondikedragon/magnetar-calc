@@ -12,7 +12,7 @@ test("exports an expression-first notebook with optional cached answers and view
   assert.equal(notebook.schemaVersion, 1);
   assert.equal(notebook.history[0].id, 4);
   assert.equal(notebook.history[0].expression, "123");
-  assert.equal(notebook.history[0].output.engine.id, "decimal.js");
+  assert.equal(notebook.history[0].output.engine.id, "native-exact");
   assert.equal(notebook.history[0].output.renderedAnswer, "123");
   assert.deepEqual(validateNotebook(notebook), { expression: "123", history: [{ id: 4, expression: "123" }], nextId: 5, view });
 });

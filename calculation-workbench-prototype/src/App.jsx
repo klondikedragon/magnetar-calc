@@ -169,12 +169,11 @@ export function App() {
   const filteredFunctions = useMemo(() => filterFunctionCatalog(functionQuery, functionCategory), [functionQuery, functionCategory]);
 
   const referenceValues = useMemo(() => new Map([...history.flatMap((item, index) => {
-    const value = item.value.kind === "number" ? String(item.value.number) : item.value.decimal?.toString?.() ?? "1e308";
-    return [[`@history(${item.id})`, value], [`@history(-${index + 1})`, value]];
+    return [[`@history(${item.id})`, item.value], [`@history(-${index + 1})`, item.value]];
   }), ["@n", String(history.length + 1)]]), [history]);
   // Primality annotations are presentation metadata, not calculation inputs.
   // Keep the calculation worker stable when an asynchronous badge arrives.
-  const historyReferenceKey = history.map((item) => `${item.id}:${item.value.kind}:${item.value.decimal?.toString?.() ?? item.value.number ?? item.value.full}:${item.value.exactInteger ?? ""}`).join("|");
+  const historyReferenceKey = history.map((item) => `${item.id}:${item.value.kind}:${item.value.decimal?.toString?.() ?? item.value.integer?.toString?.() ?? item.value.numerator?.toString?.() ?? item.value.number ?? item.value.full}:${item.value.denominator?.toString?.() ?? ""}:${item.value.exactInteger ?? ""}`).join("|");
   const workerReferences = useMemo(() => historyReferences(history), [historyReferenceKey]);
 
   function updatePreview(nextExpression) {
