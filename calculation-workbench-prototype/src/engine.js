@@ -53,7 +53,7 @@ export const placeholderEngine = {
   convertBase(value, base) { return this.format(value, { base }); },
 };
 
-const tokenPattern = /\s*(\d+(?:\.\d*)?(?:e[+-]?\d+)?|@history\(\d+\)|[A-Za-z][A-Za-z0-9]*|↑+|\^+|[()+\-*/%!×÷−πτφ√])/gy;
+const tokenPattern = /\s*(\d+(?:\.\d*)?(?:e[+-]?\d+)?|@history\(-?\d+\)|[A-Za-z][A-Za-z0-9]*|↑+|\^+|[()+\-*/%!×÷−πτφ√])/gy;
 const maximumExpressionLength = 12000;
 const maximumTokenCount = 2400;
 const maximumTetrationHeight = 10000000;

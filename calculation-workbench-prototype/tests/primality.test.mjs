@@ -89,3 +89,13 @@ test("zero display places uses a zero-place scientific coefficient for non-integ
   const scientific = formatAutomatically(evaluateAutomatically("3103.8"), { base: 10, precision: 0, notation: "scientific" });
   assert.equal(scientific.text, "3 × 10^3");
 });
+
+test("accepts relative history references alongside stable history IDs", () => {
+  const references = new Map([
+    ["@history(19)", "5"], ["@history(4)", "7"],
+    ["@history(-1)", "5"], ["@history(-2)", "7"],
+  ]);
+  assert.equal(evaluateAutomatically("@history(-1) + @history(-2)", references).decimal.toString(), "12");
+  assert.equal(evaluateAutomatically("@history(19) + @history(4)", references).decimal.toString(), "12");
+  assert.throws(() => evaluateAutomatically("@history(-3)", references), /unknown history reference/);
+});
