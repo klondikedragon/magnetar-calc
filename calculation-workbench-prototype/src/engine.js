@@ -120,9 +120,9 @@ function bigIntegerSequence(name, args, Ctor) {
     return asCtor(a);
   }
   if (name === "triangular") return asCtor((BigInt(n) * BigInt(n + 1)) / 2n);
-  if (name === "catalan") { let result = 1n; for (let index = 2; index <= n; index += 1) result = (result * BigInt(n + index)) / BigInt(index); return asCtor(result); }
+  if (name === "catalan") { let result = 1n; for (let index = 0; index < n; index += 1) result = (result * BigInt(2 * ((2 * index) + 1))) / BigInt(index + 2); return asCtor(result); }
   if (name === "binomial") { const k = naturalArgument(args[1], "binomial", n); if (k > n) throw new Error("binomial requires k <= n"); let result = 1n; for (let index = 1; index <= Math.min(k, n - k); index += 1) result = (result * BigInt(n - index + 1)) / BigInt(index); return asCtor(result); }
-  if (name === "stirling2") { const k = naturalArgument(args[1], "stirling2", n); const rows = Array(k + 1).fill(0n); rows[0] = 1n; for (let row = 1; row <= n; row += 1) for (let column = Math.min(row, k); column >= 1; column -= 1) rows[column] = rows[column - 1] + (BigInt(column) * rows[column]); return asCtor(rows[k]); }
+  if (name === "stirling2") { const k = naturalArgument(args[1], "stirling2", n); const rows = Array(k + 1).fill(0n); rows[0] = 1n; for (let row = 1; row <= n; row += 1) { for (let column = Math.min(row, k); column >= 2; column -= 1) rows[column] = rows[column - 1] + (BigInt(column) * rows[column]); if (k >= 1) rows[1] = 1n; } return asCtor(rows[k]); }
   if (name === "partition") { const values = Array(n + 1).fill(0n); values[0] = 1n; for (let part = 1; part <= n; part += 1) for (let total = part; total <= n; total += 1) values[total] += values[total - part]; return asCtor(values[n]); }
   if (name === "bell") { let row = [1n]; for (let index = 1; index <= n; index += 1) { const next = [row.at(-1)]; for (let column = 1; column <= index; column += 1) next.push(next[column - 1] + row[column - 1]); row = next; } return asCtor(row[0]); }
   if (name === "harmonic") { let result = new Ctor(0); for (let index = 1; index <= n; index += 1) result = result.add(new Ctor(1).div(index)); return result; }
