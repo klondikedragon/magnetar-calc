@@ -2,6 +2,7 @@
 // arbitrary-precision and logarithmic backends can be added behind this API.
 import BreakDecimal from "break_eternity.js";
 import Decimal from "decimal.js";
+import { parseExpression, tokenizeExpression } from "./expressionLanguage.js";
 
 function formatNumber(number, base, precision = 48, notation = "auto") {
   if (!Number.isFinite(number)) return { sign: "", significand: "Not a finite number", exponent: "", text: "Not a finite number", full: String(number) };
@@ -53,9 +54,6 @@ export const placeholderEngine = {
   convertBase(value, base) { return this.format(value, { base }); },
 };
 
-const tokenPattern = /\s*(\d+(?:\.\d*)?(?:e[+-]?\d+)?|@history\(-?\d+\)|@n|[A-Za-z][A-Za-z0-9]*|↑+|\^+|[(),+\-*/%!×÷−πτφ√])/gy;
-const maximumExpressionLength = 12000;
-const maximumTokenCount = 2400;
 const maximumTetrationHeight = 10000000;
 export const defaultCalculationPrecision = 1_000;
 // The view can request a wider display range, but normal calculations never
@@ -64,25 +62,7 @@ const maximumDecimalDisplayLength = 10_000;
 export const exportPrecision = 10_000_000;
 
 function tokenize(source) {
-  if (source.length > maximumExpressionLength) throw new Error("expression is too long");
-  const tokens = [];
-  let index = 0;
-  while (index < source.length) {
-    if (!source.slice(index).trim()) break;
-    tokenPattern.lastIndex = index;
-    const match = tokenPattern.exec(source);
-    if (!match) throw new Error("unsupported expression");
-    tokens.push(match[1]);
-    if (tokens.length > maximumTokenCount) throw new Error("expression is too complex");
-    index = tokenPattern.lastIndex;
-  }
-  const functions = new Set(["sqrt", "sin", "cos", "tan", "ln", "log", "abs", "exp", "min", "max", "fib", "lucas", "prime", "primepi", "partition", "catalan", "bell", "triangular", "harmonic", "jacobsthal", "stirling2", "binomial", "fgh1", "fgh2", "fgh3"]);
-  const isReference = (token) => token === "@n" || token.startsWith("@history");
-  const endsAtom = (token) => /^\d/.test(token) || isReference(token) || ["π", "τ", "φ", "e", "pi", "tau", "phi", ")", "!"].includes(token.toLowerCase());
-  const startsAtom = (token) => /^\d/.test(token) || isReference(token) || ["π", "τ", "φ", "e", "pi", "tau", "phi", "("].includes(token.toLowerCase()) || functions.has(token.toLowerCase());
-  const expanded = [];
-  tokens.forEach((token) => { if (expanded.length && endsAtom(expanded[expanded.length - 1]) && startsAtom(token)) expanded.push("*"); expanded.push(token); });
-  return expanded;
+  return tokenizeExpression(source).filter((token) => token.type !== "eof").map((token) => token.value);
 }
 
 function factorialValue(value, Ctor) {
@@ -158,7 +138,7 @@ function tetrateBreak(base, height) {
   return base.tetrate(integralHeight);
 }
 
-function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, kind = "break-eternity") {
+function evaluateBreakLegacy(expression, references = new Map(), Ctor = BreakDecimal, kind = "break-eternity") {
   const tokens = tokenize(expression);
   let position = 0;
   const peek = () => tokens[position];
@@ -208,6 +188,74 @@ function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, 
   if (typeof result.isFinite === "function" && !result.isFinite()) throw new Error("engine range exceeded");
   const knuthMatch = expression.match(/^\s*([0-9]+(?:\.[0-9]+)?)\s*(↑{2,}|\^{2,})\s*([0-9]+(?:\.[0-9]+)?)\s*$/);
   return { kind, decimal: result, full: result.toString(), knuth: knuthMatch ? { base: knuthMatch[1], arrows: knuthMatch[2].replaceAll("^", "↑"), height: knuthMatch[3] } : null };
+}
+
+function knuthMetadata(ast) {
+  if (ast.type !== "binary" || !["hyperoperation-knuth-double", "hyperoperation-unavailable"].includes(ast.implementationId)) return null;
+  if (ast.left.type !== "number" || ast.right.type !== "number") return null;
+  return { base: ast.left.raw, arrows: ast.operator.replaceAll("^", "↑"), height: ast.right.raw };
+}
+
+function evaluateBreak(expression, references = new Map(), Ctor = BreakDecimal, kind = "break-eternity") {
+  const ast = parseExpression(expression);
+  const valueForReference = (token) => {
+    if (!references.has(token)) throw new Error("unknown history reference");
+    const reference = references.get(token);
+    const numericReference = reference?.decimal ?? reference;
+    return new Ctor(numericReference?.toString?.() ?? String(numericReference));
+  };
+  const evaluateNode = (node) => {
+    if (node.type === "group") return evaluateNode(node.value);
+    if (node.type === "number") return new Ctor(node.raw);
+    if (node.type === "reference") return valueForReference(node.token);
+    if (node.type === "atom") return engineConstant(node.name, Ctor);
+    if (node.type === "unary") {
+      const value = evaluateNode(node.value);
+      if (node.implementationId === "arithmetic-negative") return value.neg();
+      if (node.implementationId === "arithmetic-positive") return value;
+      if (node.implementationId === "arithmetic-sqrt") return value.sqrt();
+      throw new Error("unknown unary operation");
+    }
+    if (node.type === "postfix") {
+      if (node.implementationId === "arithmetic-factorial") return factorialValue(evaluateNode(node.value), Ctor);
+      throw new Error("unknown postfix operation");
+    }
+    if (node.type === "binary") {
+      const left = evaluateNode(node.left);
+      const right = evaluateNode(node.right);
+      if (node.implementationId === "arithmetic-add") return left.add(right);
+      if (node.implementationId === "arithmetic-subtract") return left.sub(right);
+      if (node.implementationId === "arithmetic-multiply") return left.mul(right);
+      if (node.implementationId === "arithmetic-divide") return left.div(right);
+      if (node.implementationId === "arithmetic-modulo") return left.mod(right);
+      if (node.implementationId === "arithmetic-power" || node.implementationId === "hyperoperation-knuth-up") return left.pow(right);
+      if (node.implementationId === "hyperoperation-knuth-double") return Ctor === BreakDecimal ? tetrateBreak(left, right) : tetrateDecimal(left, right, Ctor);
+      if (node.implementationId === "hyperoperation-unavailable") throw new Error("hyper-operation not available in this backend");
+      throw new Error("unknown binary operation");
+    }
+    if (node.type === "call") {
+      if (!node.implementationId) throw new Error("unknown function");
+      const args = node.args.map(evaluateNode);
+      if (node.implementationId === "arithmetic-sqrt") return args[0].sqrt();
+      if (node.implementationId === "trigonometry-sin") return args[0].sin();
+      if (node.implementationId === "trigonometry-cos") return args[0].cos();
+      if (node.implementationId === "trigonometry-tan") return args[0].tan();
+      if (node.implementationId === "logarithm-natural") return args[0].ln();
+      if (node.implementationId === "logarithm-base-ten") return args[0].log10();
+      if (node.implementationId === "arithmetic-abs") return args[0].abs();
+      if (node.implementationId === "exponential-exp") return args[0].exp();
+      if (node.implementationId === "arithmetic-min") return args.reduce((lowest, value) => value.lt(lowest) ? value : lowest);
+      if (node.implementationId === "arithmetic-max") return args.reduce((highest, value) => value.gt(highest) ? value : highest);
+      if (node.implementationId.startsWith("sequence-")) return bigIntegerSequence(node.name, args, Ctor);
+      if (node.implementationId === "combinatorics-stirling-second" || node.implementationId === "combinatorics-binomial") return bigIntegerSequence(node.name, args, Ctor);
+      if (node.implementationId.startsWith("hierarchy-fgh")) return wainerFinite(Number(node.name.at(-1)), args[0], Ctor);
+      throw new Error("unknown function");
+    }
+    throw new Error("unsupported expression");
+  };
+  const result = evaluateNode(ast);
+  if (typeof result.isFinite === "function" && !result.isFinite()) throw new Error("engine range exceeded");
+  return { kind, decimal: result, full: result.toString(), knuth: knuthMetadata(ast) };
 }
 
 function scientificParts(magnitude, precision, engineering = false) {
