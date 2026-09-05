@@ -9,6 +9,19 @@ const unary = (id, signature, name, category, description, keywords = [], url) =
   insertion: { empty: `${signature.slice(0, signature.indexOf("("))}($cursor)`, selected: `${signature.slice(0, signature.indexOf("("))}($selection$cursor)` },
 });
 
+const steinhausSearchKeywords = [
+  "numberphile",
+  "brady haran",
+  "youtube",
+  "math video",
+  "googology",
+  "large number",
+  "large numbers",
+  "hyperoperation",
+  "nested polygons",
+  "polygonal notation",
+];
+
 /**
  * Stable catalog records are deliberately presentation-independent.  Keep ids
  * when descriptions or display names change so future saved searches/favorites
@@ -87,7 +100,14 @@ const catalogEntries = [
   { id: "hyperoperation-knuth-double", signature: "a ↑↑ b", name: "Knuth double up-arrow", category: "Hyperoperations", description: "Tetration: a power tower of height b.", keywords: ["tetration", "power tower", "knuth"], insertion: { empty: " ↑↑ $cursor", selected: "($selection) ↑↑ $cursor" } },
 ];
 
-export const functionCatalog = catalogEntries.map((entry) => entry.links?.length && !entry.url ? { ...entry, url: entry.links[0].url } : entry);
+export const functionCatalog = catalogEntries.map((entry) => {
+  const links = entry.links ?? [];
+  return {
+    ...entry,
+    url: entry.url ?? links[0]?.url,
+    keywords: [...new Set([...(entry.keywords ?? []), ...(entry.category === "Steinhaus–Moser" ? steinhausSearchKeywords : [])])],
+  };
+});
 
 function normalize(value) {
   return String(value ?? "").toLocaleLowerCase();
@@ -105,7 +125,7 @@ export function filterFunctionCatalog(query, category = "All") {
   const terms = parseFunctionSearch(query);
   return functionCatalog.filter((entry) => {
     if (category !== "All" && entry.category !== category) return false;
-    const searchable = normalize([entry.id, entry.signature, entry.name, entry.category, entry.description, entry.url, ...(entry.links ?? []).flatMap((link) => [link.provider, link.label, link.url]), ...entry.keywords].filter(Boolean).join(" "));
+    const searchable = normalize([entry.id, entry.signature, entry.name, entry.category, entry.description, entry.url, ...(entry.links ?? []).flatMap((link) => Object.values(link)), ...entry.keywords].filter(Boolean).join(" "));
     return terms.every((term) => searchable.includes(term));
   });
 }

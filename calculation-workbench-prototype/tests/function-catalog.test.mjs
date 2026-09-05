@@ -13,6 +13,8 @@ test("function search requires every plain or quoted term", () => {
   assert.deepEqual(parseFunctionSearch('fibonacci "golden ratio"'), ["fibonacci", "golden ratio"]);
   assert.deepEqual(filterFunctionCatalog('fibonacci "golden ratio"').map((entry) => entry.id), ["constant-phi", "sequence-fibonacci"]);
   assert.deepEqual(filterFunctionCatalog("wainer", "Fast-growing hierarchy").map((entry) => entry.id), ["hierarchy-fgh1", "hierarchy-fgh2", "hierarchy-fgh3"]);
+  assert.equal(filterFunctionCatalog("numberphile").filter((entry) => entry.category === "Steinhaus–Moser").length, 10);
+  assert.equal(filterFunctionCatalog("youtube").filter((entry) => entry.category === "Steinhaus–Moser").length, 10);
 });
 
 test("catalog insertion wraps a selected expression and places the caret", () => {
