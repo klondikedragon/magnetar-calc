@@ -523,17 +523,21 @@ function steinhausValue(base, nesting, sides, options = {}) {
   };
 }
 
-function steinhausInteger(ast, references, label) {
-  const value = decimalEngine.evaluate(astToExpression(ast), references);
+function steinhausInteger(ast, references, label, options) {
+  // Arguments may be ordinary expressions or a safely reduced inner
+  // construction. Route them through the normal dispatcher instead of asking
+  // Decimal.js to understand every catalog function itself.
+  const value = evaluateAutomatically(astToExpression(ast), references, options);
+  if (value.kind !== "decimal.js") throw new Error(`${label} requires a positive exact integer`);
   if (!value.decimal.isInteger() || value.decimal.lt(1)) throw new Error(`${label} requires a positive exact integer`);
   const text = value.decimal.toFixed(0);
   if (!/^\d+$/.test(text) || text.length > 6) throw new Error(`${label} is outside the structural input range`);
   return BigInt(text);
 }
 
-function steinhausSide(ast, references) {
+function steinhausSide(ast, references, options) {
   if (ast.type === "atom" && ast.implementationId === "steinhaus-mega") return { kind: "mega" };
-  const value = steinhausInteger(ast, references, "polygon sides");
+  const value = steinhausInteger(ast, references, "polygon sides", options);
   if (value < 3n) throw new Error("polygon sides must be at least 3");
   return { kind: "integer", value };
 }
@@ -554,7 +558,7 @@ function steinhausFromAst(ast, references, options) {
     return null;
   }
   if (ast.type !== "call" || !steinhausImplementations.has(ast.implementationId)) return null;
-  const base = steinhausInteger(ast.args[0], references, "Steinhaus–Moser construction");
+  const base = steinhausInteger(ast.args[0], references, "Steinhaus–Moser construction", options);
   let nesting = 1n;
   let sides;
   let visual;
@@ -562,12 +566,12 @@ function steinhausFromAst(ast, references, options) {
   if (ast.implementationId === "steinhaus-square") { sides = { kind: "integer", value: 4n }; visual = "square"; }
   if (ast.implementationId === "steinhaus-pentagon") { sides = { kind: "integer", value: 5n }; visual = "pentagon"; }
   if (ast.implementationId === "steinhaus-circle") { sides = { kind: "integer", value: 5n }; visual = "circle"; }
-  if (ast.implementationId === "steinhaus-polygon") { if (ast.args.length !== 2) throw new Error("sm_polygon requires a number and side count"); sides = steinhausSide(ast.args[1], references); }
+  if (ast.implementationId === "steinhaus-polygon") { if (ast.args.length !== 2) throw new Error("sm_polygon requires a number and side count"); sides = steinhausSide(ast.args[1], references, options); }
   if (ast.implementationId === "steinhaus-megagon") { sides = { kind: "mega" }; visual = "megagon"; }
   if (ast.implementationId === "steinhaus-canonical") {
     if (ast.args.length !== 3) throw new Error("sm requires a number, nesting count, and side count");
-    nesting = steinhausInteger(ast.args[1], references, "nesting count");
-    sides = steinhausSide(ast.args[2], references);
+    nesting = steinhausInteger(ast.args[1], references, "nesting count", options);
+    sides = steinhausSide(ast.args[2], references, options);
   }
   // Keep the well-known named constructions stable no matter which equivalent
   // spelling the user chose. The circle convention is the canonical spelling
@@ -605,6 +609,18 @@ function steinhausFromAst(ast, references, options) {
   const reduced = tryReduceSteinhaus(base, nesting, sides, options);
   if (reduced) return reduced;
   return steinhausValue(base, nesting, sides, { shape: sides.kind === "integer" ? Number(sides.value) : "megagon", visual });
+}
+
+function materializeExactStructuralAst(ast, references, options) {
+  if (ast.type === "group" || ast.type === "unary") return { ...ast, value: materializeExactStructuralAst(ast.value, references, options) };
+  if (ast.type === "postfix") return { ...ast, value: materializeExactStructuralAst(ast.value, references, options) };
+  if (ast.type === "binary") return { ...ast, left: materializeExactStructuralAst(ast.left, references, options), right: materializeExactStructuralAst(ast.right, references, options) };
+  if (ast.type !== "call") return ast;
+
+  const candidate = { ...ast, args: ast.args.map((argument) => materializeExactStructuralAst(argument, references, options)) };
+  const value = steinhausFromAst(candidate, references, options);
+  if (value?.kind !== "decimal.js") return candidate;
+  return { type: "number", raw: value.decimal.toString(), start: candidate.start, end: candidate.end };
 }
 
 export const engineRegistry = [decimalEngine, breakEternityEngine];
@@ -691,28 +707,29 @@ function attachExactInteger(value, expression, references) {
 }
 
 export function evaluateAutomatically(expression, references = new Map(), options = {}) {
-  const ast = parseExpression(expression);
+  const ast = materializeExactStructuralAst(parseExpression(expression), references, options);
+  const normalizedExpression = astToExpression(ast);
   const structural = steinhausFromAst(ast, references, options);
   if (structural) {
-    if (structural.kind === "decimal.js") return attachExactInteger({ ...structural, engineId: decimalEngine.id, engineLabel: decimalEngine.label }, expression, references);
+    if (structural.kind === "decimal.js") return attachExactInteger({ ...structural, engineId: decimalEngine.id, engineLabel: decimalEngine.label }, normalizedExpression, references);
     return structural;
   }
   if (ast.type === "reference") {
     const reference = references.get(ast.token);
     if (reference?.kind === "steinhaus-moser") return reference;
   }
-  const structuralHierarchy = expression.trim().match(/^fgh([3-5])\(\s*(\d+)\s*\)$/i);
+  const structuralHierarchy = normalizedExpression.trim().match(/^fgh([3-5])\(\s*(\d+)\s*\)$/i);
   if (structuralHierarchy) {
     const level = Number(structuralHierarchy[1]);
     const argument = structuralHierarchy[2];
     if (level >= 4 || Number(argument) > 4) return { kind: "hierarchy", level, argument, full: `F_${level}(${argument})`, engineId: "wainer-structural", engineLabel: "Wainer hierarchy · structural" };
   }
-  const ordered = options.forceDecimal ? [decimalEngine] : looksBeyondDecimal(expression) ? [breakEternityEngine, decimalEngine] : engineRegistry;
+  const ordered = options.forceDecimal ? [decimalEngine] : looksBeyondDecimal(normalizedExpression) ? [breakEternityEngine, decimalEngine] : engineRegistry;
   let lastError;
   for (const engine of ordered) {
     try {
-      const value = engine.evaluate(expression, references, options);
-      return attachExactInteger({ ...value, engineId: engine.id ?? "placeholder", engineLabel: engine.label ?? "Wide range" }, expression, references);
+      const value = engine.evaluate(normalizedExpression, references, options);
+      return attachExactInteger({ ...value, engineId: engine.id ?? "placeholder", engineLabel: engine.label ?? "Wide range" }, normalizedExpression, references);
     } catch (error) { lastError = error; }
   }
   throw lastError ?? new Error("No compatible engine");

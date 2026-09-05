@@ -103,7 +103,7 @@ export function App() {
   const [functionBrowserOpen, setFunctionBrowserOpen] = useState(false);
   const [functionQuery, setFunctionQuery] = useState("");
   const [functionCategory, setFunctionCategory] = useState("All");
-  const [functionView, setFunctionView] = useState("grid");
+  const [functionView, setFunctionView] = useState(() => storedWorkspace?.view?.functionView ?? "grid");
   const [pendingImport, setPendingImport] = useState(null);
   const [transferStatus, setTransferStatus] = useState("");
   const [memoryOpen, setMemoryOpen] = useState(false);
@@ -153,13 +153,13 @@ export function App() {
     try {
       window.localStorage.setItem(storageKey, JSON.stringify({
         expression, nextId,
-        view: { base, precision, notation, groupDigits, activeMode },
+        view: { base, precision, notation, groupDigits, activeMode, functionView },
         previewValue: serializeValue(previewValue),
         history: history.map((item) => ({ ...item, value: serializeValue(item.value) })),
         memory: memory ? { ...memory, value: serializeValue(memory.value) } : null,
       }));
     } catch { /* Storage is optional; the calculator remains usable without it. */ }
-  }, [expression, base, precision, notation, groupDigits, activeMode, nextId, previewValue, history, memory]);
+  }, [expression, base, precision, notation, groupDigits, activeMode, functionView, nextId, previewValue, history, memory]);
   const precisionLabel = useMemo(() => precision.toLocaleString(), [precision]);
   const paletteKeys = activeMode === "Number theory" ? numberTheoryKeys : activeMode === "Sequences" ? sequenceKeys : activeMode === "Programmer" ? keys : activeMode === "Trigonometry" ? keys : activeMode === "Scientific" ? keys : activeMode === "Ordinal / hierarchy" ? ordinalKeys : keys;
   const paletteHelp = activeMode === "Sequences" ? sequenceHelp : activeMode === "Ordinal / hierarchy" ? ordinalHelp : {};
