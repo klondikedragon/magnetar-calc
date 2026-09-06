@@ -61,6 +61,8 @@ function isEditableElement(target) {
 
 function calculationErrorMessage(message) {
   if (message === "engine range exceeded") return "Outside the current engine range";
+  if (message?.includes("yellowstone supports")) return "Yellowstone currently supports n ≤ 10,000";
+  if (message?.includes("yellowstone cache")) return "Yellowstone reached its in-memory cache budget";
   if (message?.includes("safety budget")) return "Tetration exceeds the current safety budget";
   if (message?.includes("expression is too long") || message?.includes("expression is too complex")) return "Expression exceeds the current safety budget";
   return "Check this expression";
@@ -131,6 +133,7 @@ export function App() {
   const fullInfoPriorFocusRef = useRef(null);
   const jobCounterRef = useRef(0);
   const workerRef = useRef(null);
+  const workerBusyRef = useRef(false);
   const exportWorkerRef = useRef(null);
   const notebookOperationRef = useRef(null);
   const importInputRef = useRef(null);
@@ -196,21 +199,26 @@ export function App() {
   }
 
   useEffect(() => {
-    workerRef.current?.terminate();
-    workerRef.current = null;
     const source = expression.trim();
     if (!source) { setCalculation({ status: "idle", commitOnSuccess: false, startedAt: 0 }); return undefined; }
     const jobId = ++jobCounterRef.current;
     setCalculation({ status: "debouncing", commitOnSuccess: commitOnSuccessRef.current, startedAt: Date.now() });
     const debounce = setTimeout(() => {
-      const worker = new Worker(new URL("./calculation-worker.js", import.meta.url), { type: "module" });
+      const worker = workerRef.current ?? new Worker(new URL("./calculation-worker.js", import.meta.url), { type: "module" });
       workerRef.current = worker;
+      workerBusyRef.current = true;
       setCalculation((current) => ({ ...current, status: "computing" }));
-      const deadline = setTimeout(() => { worker.terminate(); if (jobId === jobCounterRef.current) setCalculation((current) => ({ ...current, status: "timed-out" })); }, 10000);
+      const deadline = setTimeout(() => {
+        if (workerRef.current !== worker) return;
+        worker.terminate();
+        workerRef.current = null;
+        workerBusyRef.current = false;
+        if (jobId === jobCounterRef.current) setCalculation((current) => ({ ...current, status: "timed-out" }));
+      }, 10000);
       worker.onmessage = ({ data }) => {
         clearTimeout(deadline);
         if (jobId !== jobCounterRef.current) return;
-        worker.terminate(); workerRef.current = null;
+        workerBusyRef.current = false;
         if (data.type === "error") { setExpressionError(calculationErrorMessage(data.message)); setCalculation({ status: "failed", commitOnSuccess: false, startedAt: 0 }); return; }
         const value = deserializeValue(data.value);
         setPreviewValue(value);
@@ -219,11 +227,22 @@ export function App() {
         setCalculation({ status: "completed", commitOnSuccess: false, startedAt: 0 });
         if (shouldCommit) { commitOnSuccessRef.current = false; setNextId((id) => { setHistory((items) => [{ id, expression: source, value }, ...items]); return id + 1; }); setToast("Saved to History"); setTimeout(() => setToast(""), 1500); }
       };
+      worker.onerror = () => {
+        clearTimeout(deadline);
+        if (workerRef.current === worker) workerRef.current = null;
+        workerBusyRef.current = false;
+        if (jobId === jobCounterRef.current) { setExpressionError("Check this expression"); setCalculation({ status: "failed", commitOnSuccess: false, startedAt: 0 }); }
+      };
       worker.postMessage({ jobId, expression: source, references: workerReferences, options: { precision } });
     }, 120);
-    return () => { clearTimeout(debounce); workerRef.current?.terminate(); };
+    return () => {
+      clearTimeout(debounce);
+      // Cancellation remains immediate. Idle workers survive so a sequential
+      // cache such as Yellowstone can be reused on the next calculation.
+      if (workerBusyRef.current) { workerRef.current?.terminate(); workerRef.current = null; workerBusyRef.current = false; }
+    };
   }, [expression, precision, workerReferences]);
-  useEffect(() => () => { exportWorkerRef.current?.terminate(); notebookOperationRef.current?.worker?.terminate(); }, []);
+  useEffect(() => () => { workerRef.current?.terminate(); exportWorkerRef.current?.terminate(); notebookOperationRef.current?.worker?.terminate(); }, []);
   useEffect(() => {
     if (!["debouncing", "computing"].includes(calculation.status)) { setShowCalculating(false); return undefined; }
     const timer = setTimeout(() => setShowCalculating(true), 300);
@@ -246,6 +265,7 @@ export function App() {
     jobCounterRef.current += 1;
     workerRef.current?.terminate();
     workerRef.current = null;
+    workerBusyRef.current = false;
     commitOnSuccessRef.current = false;
     setCalculation({ status: "cancelled", commitOnSuccess: false, startedAt: 0 });
   }

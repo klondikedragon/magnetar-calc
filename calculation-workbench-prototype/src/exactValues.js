@@ -1,3 +1,5 @@
+import { yellowstoneTerm } from "./yellowstone.js";
+
 // Exact values are deliberately separate from Decimal.js. They retain the
 // mathematical result as BigInt components and only become an approximation
 // when a caller explicitly asks for one.
@@ -228,26 +230,7 @@ function sequence(implementationId, args) {
     for (let index = 1; index <= n; index += 1) result = add(result, exactRational(1n, BigInt(index)));
     return result;
   }
-  if (implementationId === "sequence-yellowstone") {
-    if (n < 1) notExact();
-    const values = [1, 2, 3];
-    const used = new Set(values);
-    const gcd = (left, right) => {
-      let a = left;
-      let b = right;
-      while (b) [a, b] = [b, a % b];
-      return a;
-    };
-    while (values.length < n) {
-      const twoBack = values.at(-2);
-      const previous = values.at(-1);
-      let candidate = 1;
-      while (used.has(candidate) || gcd(candidate, twoBack) === 1 || gcd(candidate, previous) !== 1) candidate += 1;
-      values.push(candidate);
-      used.add(candidate);
-    }
-    return exactInteger(values[n - 1]);
-  }
+  if (implementationId === "sequence-yellowstone") return exactInteger(yellowstoneTerm(n));
   notExact();
 }
 

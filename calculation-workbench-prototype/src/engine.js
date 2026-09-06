@@ -22,6 +22,7 @@ import {
   serializeExtendedScale,
   tryEvaluateExtendedScale,
 } from "./extendedScale.js";
+import { yellowstoneTerm } from "./yellowstone.js";
 
 function formatNumber(number, base, precision = 48, notation = "auto") {
   if (!Number.isFinite(number)) return { sign: "", significand: "Not a finite number", exponent: "", text: "Not a finite number", full: String(number) };
@@ -202,28 +203,7 @@ function bigIntegerSequence(name, args, Ctor) {
   if (name === "partition") { const values = Array(n + 1).fill(0n); values[0] = 1n; for (let part = 1; part <= n; part += 1) for (let total = part; total <= n; total += 1) values[total] += values[total - part]; return asCtor(values[n]); }
   if (name === "bell") { let row = [1n]; for (let index = 1; index <= n; index += 1) { const next = [row.at(-1)]; for (let column = 1; column <= index; column += 1) next.push(next[column - 1] + row[column - 1]); row = next; } return asCtor(row[0]); }
   if (name === "harmonic") { let result = new Ctor(0); for (let index = 1; index <= n; index += 1) result = result.add(new Ctor(1).div(index)); return result; }
-  if (name === "yellowstone") {
-    // OEIS A098550. The finite search is deliberately bounded above: this is
-    // an exact, pedagogical sequence implementation, not a background sieve.
-    if (n < 1) throw new Error("yellowstone requires an integer n >= 1");
-    const values = [1, 2, 3];
-    const used = new Set(values);
-    const gcd = (left, right) => {
-      let a = left;
-      let b = right;
-      while (b) [a, b] = [b, a % b];
-      return a;
-    };
-    while (values.length < n) {
-      const twoBack = values.at(-2);
-      const previous = values.at(-1);
-      let candidate = 1;
-      while (used.has(candidate) || gcd(candidate, twoBack) === 1 || gcd(candidate, previous) !== 1) candidate += 1;
-      values.push(candidate);
-      used.add(candidate);
-    }
-    return asCtor(values[n - 1]);
-  }
+  if (name === "yellowstone") return asCtor(yellowstoneTerm(n));
   if (name === "prime" || name === "primepi") { const bound = name === "prime" ? Math.max(20, Math.ceil(n * (Math.log(Math.max(n, 2)) + Math.log(Math.log(Math.max(n, 3))) + 3))) : n; const sieve = new Uint8Array(bound + 1); let count = 0; for (let candidate = 2; candidate <= bound; candidate += 1) { if (sieve[candidate]) continue; count += 1; if (name === "prime" && count === n) return new Ctor(candidate); for (let multiple = candidate * candidate; multiple <= bound; multiple += candidate) sieve[multiple] = 1; } return new Ctor(count); }
   throw new Error("unknown sequence");
 }
