@@ -25,24 +25,30 @@ test("derives exact base-matching digits and qualified magnitude facts", () => {
   const value = evaluateAutomatically("2^(2^(2^63))");
   const inspection = inspectAutomatically(value, { base: 2 });
   const binaryDigits = inspection.facts.find((fact) => fact.id === "matching-base-digits");
-  const magnitude = inspection.facts.find((fact) => fact.id === "decimal-digit-order");
+  const estimate = inspection.facts.find((fact) => fact.id === "decimal-digit-estimate");
+  const magnitude = inspection.facts.find((fact) => fact.id === "decimal-digit-interval");
   assert.equal(binaryDigits.value, "2^9223372036854775808 + 1");
   assert.equal(binaryDigits.certainty, "derived exact");
-  assert.match(magnitude.value, /^≈ 10\^\(2\.7765116 × 10\^18\)$/);
-  assert.equal(magnitude.certainty, "estimate");
+  assert.match(estimate.value, /^≈ 10\^\(2\.7765116 × 10\^18\)$/);
+  assert.equal(estimate.certainty, "estimate");
+  assert.match(magnitude.value, /^\[10\^\(2\.7765116 × 10\^18\), 10\^\(2\.7765118 × 10\^18\)\]$/);
+  assert.equal(magnitude.certainty, "finite-precision interval");
   assert.ok(inspection.provenance.every((claim) => claim.sources.every((source) => source.url.startsWith("https://"))));
 });
 
-test("pairs a structural digit formula with a qualified decimal estimate", () => {
+test("pairs a structural digit formula with a qualified decimal interval", () => {
   const value = evaluateAutomatically("25^88817841970012523233890533447265625");
   const inspection = inspectAutomatically(value, { base: 10 });
   const formula = inspection.facts.find((fact) => fact.id === "base-digit-formula");
   const estimate = inspection.facts.find((fact) => fact.id === "decimal-digit-estimate");
+  const interval = inspection.facts.find((fact) => fact.id === "decimal-digit-interval");
   assert.match(formula.value, /^floor\(\(88817841970012523233890533447265625\) × log_10\(25\)\) \+ 1$/);
   assert.equal(formula.certainty, "derived exact formula");
   assert.match(estimate.value, /^≈ 1\.241/);
   assert.equal(estimate.certainty, "estimate");
-  assert.equal(estimate.ruleId, "magnitude.decimal-digit-estimate");
+  assert.match(interval.value, /^\[1\.241/);
+  assert.equal(interval.certainty, "finite-precision interval");
+  assert.equal(interval.ruleId, "magnitude.decimal-digit-interval");
 });
 
 test("round-trips structural powers through persisted History values", () => {

@@ -48,10 +48,24 @@ export const structuralPowerRules = Object.freeze({
       url: "https://dlmf.nist.gov/4.8.i",
     }],
   }),
+  "magnitude.decimal-digit-interval": Object.freeze({
+    id: "magnitude.decimal-digit-interval",
+    title: "Decimal digit-count interval",
+    description: "A power's decimal digit count is enclosed by rounding a working-precision logarithmic evaluation outward at the displayed precision.",
+    sources: [{
+      id: "mathworld-number-length",
+      title: "Wolfram MathWorld: Number Length",
+      url: "https://mathworld.wolfram.com/NumberLength.html",
+    }, {
+      id: "dlmf-logarithm-powers",
+      title: "NIST Digital Library of Mathematical Functions, §4.8",
+      url: "https://dlmf.nist.gov/4.8",
+    }],
+  }),
   "magnitude.decimal-digit-estimate": Object.freeze({
     id: "magnitude.decimal-digit-estimate",
     title: "Decimal digit-count estimate",
-    description: "A power's decimal digit count is estimated by evaluating its logarithmic digit-count formula at bounded working precision.",
+    description: "A compact working-precision evaluation of a power's logarithmic digit-count formula.",
     sources: [{
       id: "mathworld-number-length",
       title: "Wolfram MathWorld: Number Length",
@@ -191,7 +205,20 @@ function nestedPowerLogLog(value) {
   } catch { return null; }
 }
 
-// This deliberately produces an estimate rather than evaluating floor(...).
+function outwardDecimalInterval(value, digits = 8) {
+  if (!value?.isFinite() || value.lte(0)) return null;
+  const unit = new factDecimal(10).pow(value.e - digits + 1);
+  const lower = value.div(unit).floor().mul(unit);
+  const upper = value.div(unit).ceil().mul(unit).plus(unit);
+  return { lower, upper };
+}
+
+function formatDecimalInterval(interval) {
+  if (!interval) return null;
+  return `[${compactDecimal(interval.lower)}, ${compactDecimal(interval.upper)}]`;
+}
+
+// This deliberately produces an interval rather than evaluating floor(...).
 // The structural formula remains the source of truth; a finite-precision log
 // cannot in general establish on which side of an integer boundary it lands.
 function decimalDigitEstimate(value) {
@@ -245,10 +272,10 @@ export function structuralPowerFacts(value, displayBase = 10) {
     });
   }
 
-  // Always offer a decimal estimate when a finite exact exponent lets us
+  // Always offer a decimal interval when a finite exact exponent lets us
   // evaluate the logarithmic expression. It complements, rather than replaces,
   // the exact formula above.
-  const decimalEstimate = decimalDigitEstimate(value);
+  const decimalEstimate = base === 10n ? null : decimalDigitEstimate(value);
   if (decimalEstimate) {
     facts.push({
       id: "decimal-digit-estimate",
@@ -256,7 +283,19 @@ export function structuralPowerFacts(value, displayBase = 10) {
       value: `≈ ${compactDecimal(decimalEstimate)}`,
       certainty: "estimate",
       ruleId: "magnitude.decimal-digit-estimate",
-      detail: "A bounded-precision evaluation of exponent × log₁₀(base) + 1. The adjacent digit-count formula remains exact.",
+      detail: "A compact bounded-precision evaluation of exponent × log₁₀(base) + 1. The adjacent digit-count formula remains exact.",
+    });
+  }
+
+  const decimalInterval = outwardDecimalInterval(decimalEstimate);
+  if (decimalInterval) {
+    facts.push({
+      id: "decimal-digit-interval",
+      label: "base-10 digit interval",
+      value: formatDecimalInterval(decimalInterval),
+      certainty: "finite-precision interval",
+      ruleId: "magnitude.decimal-digit-interval",
+      detail: "A working-precision evaluation of exponent × log₁₀(base) + 1, rounded outward at the displayed precision. The adjacent digit-count formula remains exact.",
     });
   }
 
@@ -273,20 +312,29 @@ export function structuralPowerFacts(value, displayBase = 10) {
 
   const logLog = nestedPowerLogLog(value);
   if (logLog) {
+    const logLogInterval = outwardDecimalInterval(logLog);
     facts.push({
-      id: "decimal-digit-order",
+      id: "decimal-digit-estimate",
       label: "base-10 digit estimate",
       value: `≈ 10^(${compactDecimal(logLog)})`,
       certainty: "estimate",
       ruleId: "magnitude.repeated-log",
-      detail: `log₁₀(log₁₀(n)) ≈ ${compactDecimal(logLog)}. This describes the order of the decimal digit count, not leading digits of n.`,
+      detail: "A compact repeated-log estimate of the decimal digit count's scale, not leading digits of n.",
+    });
+    facts.push({
+      id: "decimal-digit-interval",
+      label: "base-10 digit interval",
+      value: logLogInterval ? `[10^(${compactDecimal(logLogInterval.lower)}), 10^(${compactDecimal(logLogInterval.upper)})]` : `≈ 10^(${compactDecimal(logLog)})`,
+      certainty: logLogInterval ? "finite-precision interval" : "estimate",
+      ruleId: "magnitude.repeated-log",
+      detail: `The interval is formed from log₁₀(log₁₀(n)) at bounded working precision. It describes the scale of the decimal digit count, not leading digits of n.`,
     });
   }
   return facts;
 }
 
 export function structuralPowerMagnitudeSummary(value) {
-  return structuralPowerFacts(value, 10).find((fact) => fact.id === "decimal-digit-order")?.value ?? null;
+  return structuralPowerFacts(value, 10).find((fact) => fact.id === "decimal-digit-estimate")?.value ?? null;
 }
 
 export function structuralPowerProvenance(value, displayBase = 10) {
