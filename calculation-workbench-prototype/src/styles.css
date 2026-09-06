@@ -142,5 +142,18 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .full-info-details .magnitude-fact > span::after { content: "⧉"; display: inline-block; margin-left: .45em; color: #778184; font-size: .85em; opacity: 0; transform: scale(.82); transition: opacity 140ms ease, transform 140ms ease, color 140ms ease; }
 .full-info-details .magnitude-fact:hover > span::after, .full-info-details .magnitude-fact:focus-visible > span::after { color: #5e7620; opacity: 1; transform: scale(1); }
 
+/* A History queue is intentionally distinct from completed History. Pending
+   rows have no durable IDs or result actions until their dependencies settle. */
+.history-queue-count { color: #71843c; font-size: .72em; font-weight: 500; white-space: nowrap; }
+.history-queue { margin-bottom: 4px; border-bottom: 1px solid #dce3cd; }
+.history-queue-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; color: #67774b; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.history-queue-heading button { border: 1px solid #d0d9b9; border-radius: 4px; background: #f8faef; color: #637632; padding: 3px 6px; font: 600 10px "DM Sans", sans-serif; text-transform: none; }
+.history-queue-heading button:hover { border-color: #b5c58d; background: #eff4df; }
+.history-pending { background: linear-gradient(90deg, rgba(238, 243, 222, .62), transparent 70%); }
+.history-pending.computing .history-id { color: #657e24; }
+.history-pending.failed { background: linear-gradient(90deg, rgba(255, 239, 233, .7), transparent 70%); }
+.history-pending.failed .history-id, .history-pending.failed .history-pending-status { color: #9b5b43; }
+.history-pending-status { margin: 0; color: #849173; font-size: 10px; }
+
 .key[aria-label="Browse and insert a function"] { color: #566a40; background: #e8ece2; }
 @media (max-width: 650px) { .function-browser-card, .example-browser-card { height: min(720px, calc(100dvh - 16px)); padding: 14px; }.function-browser-controls { flex-wrap: wrap; }.function-view-switch { margin-left: 0; }.function-results th:nth-child(3), .function-results td:nth-child(3), .function-results th:nth-child(5), .function-results td:nth-child(5) { display: none; }.function-results th:nth-child(1), .function-results td:nth-child(1) { width: 28%; }.function-results th:nth-child(2), .function-results td:nth-child(2) { width: 26%; }.function-results th:nth-child(4), .function-results td:nth-child(4) { width: 46%; }.function-list-item, .function-browser-card.detailed .function-list-item { flex-direction: column; gap: 5px; }.function-browser-card.detailed .function-list-insert { flex-basis: auto; }.function-list-details { flex-direction: column; gap: 4px; }.example-results th:nth-child(1), .example-results td:nth-child(1) { display: none; }.example-results th:nth-child(2), .example-results td:nth-child(2) { width: 37%; }.example-results th:nth-child(3), .example-results td:nth-child(3) { width: 43%; }.example-results th:nth-child(4), .example-results td:nth-child(4) { width: 20%; }.example-browser-card.detailed .example-list-item { display: flex; flex-direction: column; gap: 5px; }.example-browser-card.detailed .example-list-heading, .example-browser-card.detailed .example-list-item p, .example-browser-card.detailed .example-reference-list, .example-browser-card.detailed .example-actions { display: flex; width: auto; }.example-browser-card.detailed .example-actions { align-self: flex-start; }.example-details-card { padding: 14px; } }

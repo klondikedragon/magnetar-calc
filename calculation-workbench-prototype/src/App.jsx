@@ -34,6 +34,7 @@ const ordinalHelp = { "F₁(n)": "Wainer fast-growing hierarchy: F1(n)=2n.", "F�
 const storageKey = "elephant-calc/workbench/v1";
 const savePickerCancelled = Symbol("save-picker-cancelled");
 const maximumDisplayPrecision = 10_000;
+const maximumQueuedHistorySaves = 10_000;
 const precisionSliderSteps = 1000;
 const precisionToSlider = (digits) => digits <= 0 ? 0 : Math.round((Math.log10(Math.min(digits, maximumDisplayPrecision) + 1) / Math.log10(maximumDisplayPrecision + 1)) * precisionSliderSteps);
 const sliderToPrecision = (position) => position <= 0 ? 0 : Math.round((10 ** ((position / precisionSliderSteps) * Math.log10(maximumDisplayPrecision + 1))) - 1);
@@ -94,7 +95,8 @@ export function App() {
   const [nextId, setNextId] = useState(() => storedWorkspace?.nextId ?? 4);
   const [memory, setMemory] = useState(() => storedWorkspace?.memory ? { ...storedWorkspace.memory, value: deserializeValue(storedWorkspace.memory.value) } : null);
   const [previewValue, setPreviewValue] = useState(() => deserializeValue(storedWorkspace?.previewValue) ?? initialHistory[0].value);
-  const [calculation, setCalculation] = useState({ status: "idle", commitOnSuccess: false, startedAt: 0 });
+  const [calculation, setCalculation] = useState({ status: "idle", startedAt: 0 });
+  const [historyQueue, setHistoryQueue] = useState([]);
   const [showCalculating, setShowCalculating] = useState(false);
   const [toast, setToast] = useState("");
   const [copiedTarget, setCopiedTarget] = useState(null);
@@ -134,6 +136,13 @@ export function App() {
   const jobCounterRef = useRef(0);
   const workerRef = useRef(null);
   const workerBusyRef = useRef(false);
+  const historyQueueWorkerRef = useRef(null);
+  const historyQueueBusyRef = useRef(false);
+  const historyQueueRef = useRef([]);
+  const historyQueueJobRef = useRef(0);
+  const historyQueueEntryRef = useRef(0);
+  const historyRef = useRef(history);
+  const nextIdRef = useRef(nextId);
   const exportWorkerRef = useRef(null);
   const notebookOperationRef = useRef(null);
   const importInputRef = useRef(null);
@@ -142,8 +151,8 @@ export function App() {
   const functionSearchRef = useRef(null);
   const functionPriorFocusRef = useRef(null);
   const functionSelectionRef = useRef({ start: 0, end: 0 });
-  const commitOnSuccessRef = useRef(false);
   const completedExpressionRef = useRef("");
+  const completedReferenceKeyRef = useRef("");
   const copyFeedbackTimerRef = useRef(null);
   const focusExpression = () => requestAnimationFrame(() => expressionRef.current?.focus());
   function sizeExpression(input = expressionRef.current) {
@@ -157,6 +166,8 @@ export function App() {
     setExpressionLines(Math.max(1, Math.ceil((height - verticalPadding) / lineHeight)));
   }
   useEffect(() => { requestAnimationFrame(() => sizeExpression()); }, [expression, expressionLines]);
+  useEffect(() => { historyRef.current = history; }, [history]);
+  useEffect(() => { nextIdRef.current = nextId; }, [nextId]);
   useEffect(() => () => clearTimeout(copyFeedbackTimerRef.current), []);
   useEffect(() => {
     const strip = document.querySelector(".memory-strip");
@@ -193,16 +204,15 @@ export function App() {
   const workerReferences = useMemo(() => historyReferences(history), [historyReferenceKey]);
 
   function updatePreview(nextExpression) {
-    commitOnSuccessRef.current = false;
     setExpression(nextExpression);
     setExpressionError("");
   }
 
   useEffect(() => {
     const source = expression.trim();
-    if (!source) { setCalculation({ status: "idle", commitOnSuccess: false, startedAt: 0 }); return undefined; }
+    if (!source) { setCalculation({ status: "idle", startedAt: 0 }); return undefined; }
     const jobId = ++jobCounterRef.current;
-    setCalculation({ status: "debouncing", commitOnSuccess: commitOnSuccessRef.current, startedAt: Date.now() });
+    setCalculation({ status: "debouncing", startedAt: Date.now() });
     const debounce = setTimeout(() => {
       const worker = workerRef.current ?? new Worker(new URL("./calculation-worker.js", import.meta.url), { type: "module" });
       workerRef.current = worker;
@@ -219,19 +229,18 @@ export function App() {
         clearTimeout(deadline);
         if (jobId !== jobCounterRef.current) return;
         workerBusyRef.current = false;
-        if (data.type === "error") { setExpressionError(calculationErrorMessage(data.message)); setCalculation({ status: "failed", commitOnSuccess: false, startedAt: 0 }); return; }
+        if (data.type === "error") { setExpressionError(calculationErrorMessage(data.message)); setCalculation({ status: "failed", startedAt: 0 }); return; }
         const value = deserializeValue(data.value);
         setPreviewValue(value);
         completedExpressionRef.current = source;
-        const shouldCommit = commitOnSuccessRef.current;
-        setCalculation({ status: "completed", commitOnSuccess: false, startedAt: 0 });
-        if (shouldCommit) { commitOnSuccessRef.current = false; setNextId((id) => { setHistory((items) => [{ id, expression: source, value }, ...items]); return id + 1; }); setToast("Saved to History"); setTimeout(() => setToast(""), 1500); }
+        completedReferenceKeyRef.current = historyReferenceKey;
+        setCalculation({ status: "completed", startedAt: 0 });
       };
       worker.onerror = () => {
         clearTimeout(deadline);
         if (workerRef.current === worker) workerRef.current = null;
         workerBusyRef.current = false;
-        if (jobId === jobCounterRef.current) { setExpressionError("Check this expression"); setCalculation({ status: "failed", commitOnSuccess: false, startedAt: 0 }); }
+        if (jobId === jobCounterRef.current) { setExpressionError("Check this expression"); setCalculation({ status: "failed", startedAt: 0 }); }
       };
       worker.postMessage({ jobId, expression: source, references: workerReferences, options: { precision } });
     }, 120);
@@ -242,23 +251,82 @@ export function App() {
       if (workerBusyRef.current) { workerRef.current?.terminate(); workerRef.current = null; workerBusyRef.current = false; }
     };
   }, [expression, precision, workerReferences]);
-  useEffect(() => () => { workerRef.current?.terminate(); exportWorkerRef.current?.terminate(); notebookOperationRef.current?.worker?.terminate(); }, []);
+  useEffect(() => () => { workerRef.current?.terminate(); historyQueueWorkerRef.current?.terminate(); exportWorkerRef.current?.terminate(); notebookOperationRef.current?.worker?.terminate(); }, []);
   useEffect(() => {
     if (!["debouncing", "computing"].includes(calculation.status)) { setShowCalculating(false); return undefined; }
     const timer = setTimeout(() => setShowCalculating(true), 300);
     return () => clearTimeout(timer);
   }, [calculation.status]);
 
-  function commit() {
-    if (!expression.trim()) return;
-    if (completedExpressionRef.current !== expression) { commitOnSuccessRef.current = true; setCalculation((current) => ({ ...current, commitOnSuccess: true })); return; }
-    try {
-      const value = previewValue;
-      setHistory((items) => [{ id: nextId, expression, value }, ...items]);
-      setNextId((id) => id + 1);
+  function updateHistoryQueue(nextQueue) {
+    historyQueueRef.current = nextQueue;
+    setHistoryQueue(nextQueue);
+  }
+
+  function finishHistoryQueueItem(entryId, result) {
+    const nextQueue = historyQueueRef.current.filter((item) => item.id !== entryId);
+    updateHistoryQueue(nextQueue);
+    if (result?.value) {
+      const entry = { id: nextIdRef.current, expression: result.expression, value: result.value };
+      nextIdRef.current += 1;
+      setNextId(nextIdRef.current);
+      const nextHistory = [entry, ...historyRef.current];
+      historyRef.current = nextHistory;
+      setHistory(nextHistory);
       setToast("Saved to History");
       setTimeout(() => setToast(""), 1500);
-    } catch (error) { setExpressionError(calculationErrorMessage(error?.message)); setToast("Expression not saved"); }
+    }
+  }
+
+  function processHistoryQueue() {
+    if (historyQueueBusyRef.current) return;
+    const nextItem = historyQueueRef.current.find((item) => item.status === "queued");
+    if (!nextItem) return;
+    historyQueueBusyRef.current = true;
+    updateHistoryQueue(historyQueueRef.current.map((item) => item.id === nextItem.id ? { ...item, status: "computing" } : item));
+    const worker = historyQueueWorkerRef.current ?? new Worker(new URL("./calculation-worker.js", import.meta.url), { type: "module" });
+    historyQueueWorkerRef.current = worker;
+    const jobId = ++historyQueueJobRef.current;
+    const deadline = setTimeout(() => {
+      if (historyQueueWorkerRef.current !== worker || jobId !== historyQueueJobRef.current) return;
+      worker.terminate();
+      historyQueueWorkerRef.current = null;
+      historyQueueBusyRef.current = false;
+      updateHistoryQueue(historyQueueRef.current.map((item) => item.id === nextItem.id ? { ...item, status: "failed", error: "Time budget reached" } : item));
+    }, 10000);
+    worker.onmessage = ({ data }) => {
+      clearTimeout(deadline);
+      if (jobId !== historyQueueJobRef.current || historyQueueWorkerRef.current !== worker) return;
+      historyQueueBusyRef.current = false;
+      if (data.type === "error") {
+        updateHistoryQueue(historyQueueRef.current.map((item) => item.id === nextItem.id ? { ...item, status: "failed", error: calculationErrorMessage(data.message) } : item));
+        return;
+      }
+      finishHistoryQueueItem(nextItem.id, { expression: nextItem.expression, value: deserializeValue(data.value) });
+      queueMicrotask(processHistoryQueue);
+    };
+    worker.onerror = () => {
+      clearTimeout(deadline);
+      if (jobId !== historyQueueJobRef.current) return;
+      historyQueueBusyRef.current = false;
+      historyQueueWorkerRef.current?.terminate();
+      historyQueueWorkerRef.current = null;
+      updateHistoryQueue(historyQueueRef.current.map((item) => item.id === nextItem.id ? { ...item, status: "failed", error: "Calculation failed" } : item));
+    };
+    worker.postMessage({ jobId, expression: nextItem.expression, references: historyReferences(historyRef.current), options: { precision } });
+  }
+
+  function commit() {
+    const source = expression.trim();
+    if (!source) return;
+    if (historyQueueRef.current.length >= maximumQueuedHistorySaves) {
+      setToast(`History save queue is limited to ${maximumQueuedHistorySaves.toLocaleString()} items`);
+      setTimeout(() => setToast(""), 1800);
+      return;
+    }
+    const nextQueue = [...historyQueueRef.current, { id: ++historyQueueEntryRef.current, expression: source, status: "queued" }];
+    updateHistoryQueue(nextQueue);
+    processHistoryQueue();
   }
 
   function cancelCalculation() {
@@ -266,8 +334,19 @@ export function App() {
     workerRef.current?.terminate();
     workerRef.current = null;
     workerBusyRef.current = false;
-    commitOnSuccessRef.current = false;
-    setCalculation({ status: "cancelled", commitOnSuccess: false, startedAt: 0 });
+    completedExpressionRef.current = "";
+    completedReferenceKeyRef.current = "";
+    setCalculation({ status: "cancelled", startedAt: 0 });
+  }
+
+  function cancelHistoryQueue() {
+    historyQueueJobRef.current += 1;
+    historyQueueWorkerRef.current?.terminate();
+    historyQueueWorkerRef.current = null;
+    historyQueueBusyRef.current = false;
+    updateHistoryQueue([]);
+    setToast("Cancelled unfinished History calculations");
+    setTimeout(() => setToast(""), 1800);
   }
 
   function addToMemory() {
@@ -655,10 +734,15 @@ export function App() {
     const pending = pendingImport;
     if (!pending) return;
     setPendingImport(null);
+    // Imported History becomes the new dependency timeline, so unfinished
+    // captured jobs must not resolve against it after replacement.
+    cancelHistoryQueue();
     const operation = startNotebookOperation(`Importing ${pending.label}…`);
     try {
       const recalculatedHistory = await recomputeNotebookHistory(operation, pending.notebook.history);
       if (operation.cancelled) throw new Error("cancelled");
+      historyRef.current = recalculatedHistory;
+      nextIdRef.current = pending.notebook.nextId;
       setHistory(recalculatedHistory);
       setNextId(pending.notebook.nextId);
       setExpression(pending.notebook.expression);
@@ -818,7 +902,7 @@ export function App() {
       <section className={`calculation-stage ${expressionError ? "expression-invalid" : ""}`} aria-label="Current calculation">
         <div className="stage-topline"><span>ACTIVE EXPRESSION</span><span className={expressionError ? "stage-hint expression-warning" : "stage-hint"}>{expressionError ? `⚠ ${expressionError}` : "Enter to save to History"}</span></div>
         <textarea ref={expressionRef} rows="1" aria-label="Expression" spellCheck={false} value={expression} onChange={(event) => updatePreview(event.target.value)} onInput={(event) => sizeExpression(event.currentTarget)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); commit(); } if (event.key === "Escape") { event.preventDefault(); updatePreview(""); } }} />
-        <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={previewTooltip} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{(showCalculating || calculation.commitOnSuccess) ? <span className="calculation-status" role="status">◌ Computing exact result {calculation.commitOnSuccess && "↳ History"}<button onClick={cancelCalculation}>Cancel</button></span> : calculation.status === "timed-out" ? <span className="toast">Exact calculation reached its time budget</span> : toast && <span className="toast" role="status">{toast}</span>}</div>
+        <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={previewTooltip} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{showCalculating ? <span className="calculation-status" role="status">◌ Computing preview<button onClick={cancelCalculation}>Cancel</button></span> : calculation.status === "timed-out" ? <span className="toast">Exact calculation reached its time budget</span> : toast && <span className="toast" role="status">{toast}</span>}</div>
         {inspectorOpen && <InspectorSummary data={inspection} subject={{ value: previewValue, data: inspection, digits: digitCount, sourceExpression: expression }} />}
         <div className="result-meta">{preview.steinhaus ? <><span>form <b className="selectable-text">{preview.canonical}</b></span><span>symbolic exact</span><span>{previewValue.engineLabel}</span></> : preview.structuralPower ? <><span>form <b className="selectable-text">{preview.canonical}</b></span><span>symbolic exact</span><span>{inspection.facts?.find((fact) => fact.id === "decimal-digit-order")?.value ? `digit-count order ${inspection.facts.find((fact) => fact.id === "decimal-digit-order").value}` : "exact power structure"}</span></> : <><span>sign <b className="selectable-text">{preview.sign || "+"}</b></span><span>exponent <b className="selectable-text">{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"}</span>{primalityLabel(previewValue) && <span className={`primality-meta ${previewValue.primality.kind}`} title={previewValue.primality.method}>{primalityLabel(previewValue)}</span>}</>}<span>click result to inspect</span></div>
         {exportStatus && <span className="export-status" role="status">{exportStatus}{exportWorkerRef.current && <button onClick={cancelHighPrecisionExport}>Cancel</button>}</span>}
@@ -842,15 +926,23 @@ export function App() {
         </div>
         <div className="trail-panel">
           <div className="panel-heading">
-            <div><p className="eyebrow">HISTORY</p><h2>{history.length} calculations</h2></div>
+            <div><p className="eyebrow">HISTORY</p><h2>{history.length} calculations{historyQueue.length ? <span className="history-queue-count"> · {historyQueue.length} queued</span> : null}</h2></div>
             <div className="history-toolbar">
               <button className="quiet examples-button" aria-haspopup="dialog" title="Browse verified example notebooks" onClick={openExamplesBrowser}>Examples</button>
               <button className="history-icon" aria-label="Chart History" title="Chart History" onClick={() => setHistoryChartOpen(true)}><ChartNoAxesCombined aria-hidden="true" /></button>
-              <button className="history-icon" aria-label="Download History notebook" title="Download History notebook" onClick={openExportDialog}><Save aria-hidden="true" /></button><button className="history-icon" aria-label="Import History notebook" title="Import History notebook" onClick={() => importInputRef.current?.click()}><FolderOpen aria-hidden="true" /></button><button className="history-icon reset-history" aria-label="Reset History" title="Reset History" onClick={() => { setHistory([]); setNextId(1); }}><RotateCcw aria-hidden="true" /></button><input ref={importInputRef} className="file-input" type="file" accept="application/json,.json" onChange={readNotebookFile} />
+              <button className="history-icon" aria-label="Download History notebook" title="Download History notebook" onClick={openExportDialog}><Save aria-hidden="true" /></button><button className="history-icon" aria-label="Import History notebook" title="Import History notebook" onClick={() => importInputRef.current?.click()}><FolderOpen aria-hidden="true" /></button><button className="history-icon reset-history" aria-label="Reset History" title="Reset History" onClick={() => { cancelHistoryQueue(); historyRef.current = []; nextIdRef.current = 1; setHistory([]); setNextId(1); }}><RotateCcw aria-hidden="true" /></button><input ref={importInputRef} className="file-input" type="file" accept="application/json,.json" onChange={readNotebookFile} />
             </div>
           </div>
           {transferStatus && <div className="transfer-status" role="status">{transferStatus}{notebookOperationRef.current && <button onClick={cancelNotebookOperation}>Cancel</button>}</div>}
           <div className="history-list">
+            {historyQueue.length > 0 && <section className="history-queue" aria-label="Pending History calculations">
+              <div className="history-queue-heading"><span>{historyQueue.some((item) => item.status === "computing") ? "Computing History queue" : historyQueue.some((item) => item.status === "failed") ? "History queue needs attention" : "History queue"}</span><button onClick={cancelHistoryQueue}>Cancel queue</button></div>
+              {historyQueue.map((item) => <article className={`history-item history-pending ${item.status}`} key={`queue-${item.id}`}>
+                <div className="history-top"><span className="history-id">{item.status === "computing" ? "◌ Computing" : item.status === "failed" ? "! Not calculated" : "○ Queued"}</span></div>
+                <p className="history-expression selectable-text" aria-label={`Queued History expression: ${item.expression}`}>{item.expression}</p>
+                <p className="history-pending-status">{item.status === "failed" ? item.error : item.status === "computing" ? "Resolving against completed History…" : "Waiting for earlier History calculations…"}</p>
+              </article>)}
+            </section>}
             {history.map((item) => {
               const itemResult = renderResult(item.value);
               const itemPrimality = primalityLabel(item.value);
@@ -861,7 +953,7 @@ export function App() {
                   <span className="history-actions">
                     <button className="use-button info-button" aria-label={`Inspect History item ${item.id}`} onClick={() => openHistoryInfo(item)}>Info</button>
                     <button className="use-button" aria-label={`Use History item ${item.id} in the active expression`} onClick={() => useHistory(item)}>Use</button>
-                    <button className="delete-history" aria-label={`Delete History item ${item.id}`} title={`Delete @history(${item.id})`} onClick={() => setHistory((items) => items.filter((entry) => entry.id !== item.id))}>×</button>
+                    <button className="delete-history" aria-label={`Delete History item ${item.id}`} title={`Delete @history(${item.id})`} onClick={() => { const nextHistory = historyRef.current.filter((entry) => entry.id !== item.id); historyRef.current = nextHistory; setHistory(nextHistory); }}>×</button>
                   </span>
                 </div>
                 <p className="history-expression selectable-text" aria-label={`History expression: ${item.expression}`}>{item.expression}</p>
