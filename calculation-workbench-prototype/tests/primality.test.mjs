@@ -24,6 +24,12 @@ test("publishes a calculated exact integer with its classification", () => {
   assert.equal(value.primality?.certainty, "verified");
 });
 
+test("preserves primality through the worker-safe value round trip", () => {
+  const calculated = evaluateWithAnalysis("7");
+  const restored = deserializeValue(serializeValue(calculated));
+  assert.deepEqual(restored.primality, calculated.primality);
+});
+
 test("does not classify Decimal results lacking an independent integer reconstruction", () => {
   assert.equal(evaluateAutomatically("sqrt(4)").exactInteger, undefined);
   assert.equal(analyzePrimality(evaluateAutomatically("sqrt(4)")), null);

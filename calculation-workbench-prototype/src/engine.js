@@ -1166,7 +1166,13 @@ export function serializeValue(value) {
 
 export function deserializeValue(value) {
   if (!value) return null;
-  if (value.kind === "exact-integer" || value.kind === "exact-rational") return hydrateExactValue(deserializeExactValue(value));
+  if (value.kind === "exact-integer" || value.kind === "exact-rational") {
+    const restored = hydrateExactValue(deserializeExactValue(value));
+    // Analysis travels with a worker result, but is not part of an exact
+    // number's mathematical representation. Restore it explicitly after
+    // rebuilding the BigInt-backed value for the UI.
+    return value.primality ? { ...restored, primality: value.primality } : restored;
+  }
   if (isStructuralPower(value)) return deserializeStructuralValue(value);
   if (isExtendedScale(value)) return deserializeExtendedScale(value);
   if (value.kind === "decimal.js") return { ...value, decimal: new Decimal(value.decimal) };
