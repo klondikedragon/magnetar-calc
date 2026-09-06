@@ -56,6 +56,29 @@ meaning, input domains, exact reductions, serialization, rendering, and error
 or estimate behavior. It ends with small-case oracle tests, property tests, and
 round-trip serialization tests.
 
+## Calculation provenance
+
+The inspector will gain a dedicated **Provenance** view. It is an expandable
+learning and audit surface, not extra noise in the compact result summary.
+For every derived claim it displays, it will show:
+
+- the fact being claimed and its certainty (`exact`, `derived exact`,
+  `rounded`, `estimate`, `bound`, or `structural`);
+- the named rule and its substituted inputs, with its required domain and
+  precision conditions;
+- the immediate derivation or computation approach, including any engine
+  fallback or symbolic preservation decision;
+- verification evidence, such as an overlap oracle, property test, modular
+  check, or independent implementation; and
+- direct links to the mathematical references supporting the rule.
+
+The future rule registry should provide stable rule and source IDs, so exports
+can preserve provenance without treating rendered text as evidence. A reference
+explains why a theorem or algorithm is valid; tests and independent oracles
+verify that this implementation applied it correctly. The detailed engineering
+requirements live in
+[`docs/engineering/trustworthy-calculator.md`](engineering/trustworthy-calculator.md).
+
 ## Deferred work
 
 ### Certified interval / ball arithmetic

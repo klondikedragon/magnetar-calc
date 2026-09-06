@@ -2,6 +2,16 @@
 
 Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
 
+## Trustworthy calculation work
+
+Before changing the evaluator, number engines, numerical formatting, derived
+number facts, worker protocol, persistence format, or their tests, read
+[`docs/engineering/trustworthy-calculator.md`](docs/engineering/trustworthy-calculator.md).
+The compact inspector must never overstate a value's exactness, precision, or
+mathematical interpretation. New derived facts need explicit validity
+conditions, evidence, and tests; the future provenance panel is the place to
+make that reasoning inspectable without crowding the workbench.
+
 Before making substantial visual changes, use the Product Design plugin's `get-context` skill when the visual source is unclear or no longer matches the current goal. When the user gives durable prototype-specific design feedback, preferences, or decisions, record them in `AGENTS.md`.
 
 When implementing from a selected generated mock, treat that image as the source of truth for layout, component anatomy, density, spacing, color, typography, visible content, and hierarchy.
