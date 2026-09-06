@@ -48,6 +48,20 @@ export const structuralPowerRules = Object.freeze({
       url: "https://dlmf.nist.gov/4.8.i",
     }],
   }),
+  "magnitude.decimal-digit-estimate": Object.freeze({
+    id: "magnitude.decimal-digit-estimate",
+    title: "Decimal digit-count estimate",
+    description: "A power's decimal digit count is estimated by evaluating its logarithmic digit-count formula at bounded working precision.",
+    sources: [{
+      id: "mathworld-number-length",
+      title: "Wolfram MathWorld: Number Length",
+      url: "https://mathworld.wolfram.com/NumberLength.html",
+    }, {
+      id: "dlmf-logarithm-powers",
+      title: "NIST Digital Library of Mathematical Functions, §4.8",
+      url: "https://dlmf.nist.gov/4.8",
+    }],
+  }),
 });
 
 function freeze(value) { return Object.freeze(value); }
@@ -177,6 +191,20 @@ function nestedPowerLogLog(value) {
   } catch { return null; }
 }
 
+// This deliberately produces an estimate rather than evaluating floor(...).
+// The structural formula remains the source of truth; a finite-precision log
+// cannot in general establish on which side of an integer boundary it lands.
+function decimalDigitEstimate(value) {
+  const base = positiveExactInteger(value.base);
+  if (!base || base <= 1n || !isExactValue(value.exponent)) return null;
+  try {
+    const estimate = exactDecimal(value.exponent)
+      .mul(new factDecimal(base.toString()).log(10))
+      .add(1);
+    return estimate.isFinite() && estimate.gt(0) ? estimate : null;
+  } catch { return null; }
+}
+
 function integerBase(value) {
   const integer = positiveExactInteger(value);
   return integer && integer > 1n ? integer : null;
@@ -217,6 +245,21 @@ export function structuralPowerFacts(value, displayBase = 10) {
     });
   }
 
+  // Always offer a decimal estimate when a finite exact exponent lets us
+  // evaluate the logarithmic expression. It complements, rather than replaces,
+  // the exact formula above.
+  const decimalEstimate = decimalDigitEstimate(value);
+  if (decimalEstimate) {
+    facts.push({
+      id: "decimal-digit-estimate",
+      label: "base-10 digit estimate",
+      value: `≈ ${compactDecimal(decimalEstimate)}`,
+      certainty: "estimate",
+      ruleId: "magnitude.decimal-digit-estimate",
+      detail: "A bounded-precision evaluation of exponent × log₁₀(base) + 1. The adjacent digit-count formula remains exact.",
+    });
+  }
+
   if (base % 5n !== 0n) {
     facts.push({
       id: "decimal-trailing-zeroes",
@@ -232,7 +275,7 @@ export function structuralPowerFacts(value, displayBase = 10) {
   if (logLog) {
     facts.push({
       id: "decimal-digit-order",
-      label: "decimal digit-count order",
+      label: "base-10 digit estimate",
       value: `≈ 10^(${compactDecimal(logLog)})`,
       certainty: "estimate",
       ruleId: "magnitude.repeated-log",

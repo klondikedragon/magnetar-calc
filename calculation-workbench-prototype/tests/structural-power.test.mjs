@@ -33,6 +33,18 @@ test("derives exact base-matching digits and qualified magnitude facts", () => {
   assert.ok(inspection.provenance.every((claim) => claim.sources.every((source) => source.url.startsWith("https://"))));
 });
 
+test("pairs a structural digit formula with a qualified decimal estimate", () => {
+  const value = evaluateAutomatically("25^88817841970012523233890533447265625");
+  const inspection = inspectAutomatically(value, { base: 10 });
+  const formula = inspection.facts.find((fact) => fact.id === "base-digit-formula");
+  const estimate = inspection.facts.find((fact) => fact.id === "decimal-digit-estimate");
+  assert.match(formula.value, /^floor\(\(88817841970012523233890533447265625\) × log_10\(25\)\) \+ 1$/);
+  assert.equal(formula.certainty, "derived exact formula");
+  assert.match(estimate.value, /^≈ 1\.241/);
+  assert.equal(estimate.certainty, "estimate");
+  assert.equal(estimate.ruleId, "magnitude.decimal-digit-estimate");
+});
+
 test("round-trips structural powers through persisted History values", () => {
   const source = evaluateAutomatically("2^(2^(2^63))");
   const restored = deserializeValue(serializeValue(source));
