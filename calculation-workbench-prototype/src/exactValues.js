@@ -2,7 +2,10 @@
 // mathematical result as BigInt components and only become an approximation
 // when a caller explicitly asks for one.
 
-const maximumExactDigits = 10_000;
+// This is an expansion budget, not a precision setting. One hundred thousand
+// decimal digits is still compact enough for the worker and lets ordinary
+// powers such as 6^46656 remain fully exact.
+const maximumExactDigits = 100_000;
 const maximumExactPowerExponent = 100_000;
 
 class NotExactError extends Error {}

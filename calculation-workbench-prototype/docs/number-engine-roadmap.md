@@ -14,6 +14,7 @@ label, and a certainty classification:
 | `exact-integer` | A JavaScript `BigInt`, serialized as a decimal string | Exact |
 | `exact-rational` | Reduced `BigInt` numerator and positive denominator | Exact |
 | `decimal.js` | A finite Decimal.js approximation | Rounded to its recorded working precision |
+| `extended-scale` | Normalized Decimal significand with an arbitrary exact base-10 scale | Exact only when the retained significand is exact; otherwise rounded |
 | `break-eternity` | A wide-range layered approximation | Magnitude-oriented approximation |
 | `steinhaus-moser`, `hierarchy` | A defined symbolic construction | Symbolic exact; not numerically expanded |
 
@@ -32,6 +33,8 @@ expressions are always recomputed.
   result metadata.
 - [x] Use a bounded Decimal.js target-plus-guard precision policy and report
   retained working precision. Precision retry remains deferred.
+- [x] Preserve values beyond Decimal.js's `±9 × 10^15` exponent range as
+  extended scientific scales when their decimal exponent is itself exact.
 
 ## Structural-value program
 
