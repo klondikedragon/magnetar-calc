@@ -178,7 +178,7 @@ function exactSquareRoot(value) {
 }
 
 function sequence(implementationId, args) {
-  const n = natural(args[0], implementationId === "sequence-nth-prime" ? 100_000 : 2_000);
+  const n = natural(args[0], implementationId === "sequence-nth-prime" ? 100_000 : implementationId === "sequence-yellowstone" ? 10_000 : 2_000);
   if (implementationId === "sequence-fibonacci" || implementationId === "sequence-lucas" || implementationId === "sequence-jacobsthal") {
     let a = implementationId === "sequence-lucas" ? 2n : 0n;
     let b = 1n;
@@ -227,6 +227,26 @@ function sequence(implementationId, args) {
     let result = exactInteger(0);
     for (let index = 1; index <= n; index += 1) result = add(result, exactRational(1n, BigInt(index)));
     return result;
+  }
+  if (implementationId === "sequence-yellowstone") {
+    if (n < 1) notExact();
+    const values = [1, 2, 3];
+    const used = new Set(values);
+    const gcd = (left, right) => {
+      let a = left;
+      let b = right;
+      while (b) [a, b] = [b, a % b];
+      return a;
+    };
+    while (values.length < n) {
+      const twoBack = values.at(-2);
+      const previous = values.at(-1);
+      let candidate = 1;
+      while (used.has(candidate) || gcd(candidate, twoBack) === 1 || gcd(candidate, previous) !== 1) candidate += 1;
+      values.push(candidate);
+      used.add(candidate);
+    }
+    return exactInteger(values[n - 1]);
   }
   notExact();
 }

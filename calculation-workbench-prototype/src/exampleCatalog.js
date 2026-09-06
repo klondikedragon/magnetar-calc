@@ -19,6 +19,15 @@ const powerTowerNotebook = {
   nextHistoryId: 2,
 };
 
+const yellowstoneNotebook = {
+  schemaVersion: 1,
+  activeExpression: { expression: "yellowstone(@n)" },
+  // Each saved step uses its ordinal History position. After import, pressing
+  // Enter continues the permutation without editing the active expression.
+  history: Array.from({ length: 12 }, (_, index) => ({ id: 12 - index, expression: "yellowstone(@n)" })),
+  nextHistoryId: 13,
+};
+
 /**
  * Examples are source-backed notebooks rather than cached answers. Imports
  * always re-evaluate `notebook`; verification describes the matching fixture.
@@ -65,6 +74,28 @@ export const exampleCatalog = [
     references: [
       { label: "NIST DLMF §4.8: Powers and logarithms", url: "https://dlmf.nist.gov/4.8" },
       { label: "Wolfram MathWorld: Number Length", url: "https://mathworld.wolfram.com/NumberLength.html" },
+    ],
+  },
+  {
+    id: "sequences.yellowstone-permutation",
+    published: true,
+    category: "History & sequences",
+    name: "The Yellowstone permutation",
+    description: "Build a greedy permutation from local gcd rules, then continue it by pressing Enter with the same expression.",
+    keywords: ["yellowstone", "numberphile", "permutation", "gcd", "relatively prime", "a098550", "sequence position", "history"],
+    notebook: yellowstoneNotebook,
+    verification: { fixture: "examples.yellowstone-permutation", status: "verified" },
+    details: {
+      overview: [
+        "The Yellowstone permutation starts 1, 2, 3. Each later term is the smallest unused positive integer sharing a nontrivial common factor with the term two positions before it while remaining coprime to the immediately preceding term.",
+        "Every History entry uses yellowstone(@n), so the expression stays fixed while @n advances with the next History position.",
+      ],
+      steps: ["Load the example.", "Inspect early values and their History positions.", "Press Enter to calculate the next exact finite-range term."],
+    },
+    references: [
+      { label: "OEIS A098550: Yellowstone permutation", url: "https://oeis.org/A098550" },
+      { label: "Sloane et al.: The Yellowstone Permutation", url: "https://arxiv.org/abs/1501.01669" },
+      { label: "Numberphile: The Yellowstone Permutation", url: "https://www.youtube.com/watch?v=DUaqiM1bGX4" },
     ],
   },
   {

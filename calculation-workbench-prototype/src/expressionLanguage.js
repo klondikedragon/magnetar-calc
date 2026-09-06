@@ -39,6 +39,7 @@ export const expressionImplementations = [
   ["sequence-triangular", { calls: ["triangular"], kind: "sequence" }],
   ["sequence-harmonic", { calls: ["harmonic"], kind: "sequence" }],
   ["sequence-jacobsthal", { calls: ["jacobsthal"], kind: "sequence" }],
+  ["sequence-yellowstone", { calls: ["yellowstone"], kind: "sequence" }],
   ["combinatorics-stirling-second", { calls: ["stirling2"], kind: "sequence" }],
   ["combinatorics-binomial", { calls: ["binomial"], kind: "sequence" }],
   ["steinhaus-triangle", { calls: ["sm_triangle"], kind: "structural" }],
