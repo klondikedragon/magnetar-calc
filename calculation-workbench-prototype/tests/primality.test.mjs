@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import BreakDecimal from "break_eternity.js";
-import { analyzePrimality, deserializeValue, digitCountAutomatically, evaluateAutomatically, evaluateWithAnalysis, formatAutomatically, formatDigitCountForInspector, formatForCopy, formatForHighPrecisionExport, inspectAutomatically, serializeValue } from "../src/engine.js";
+import { analyzePrimality, analyzePrimeFactors, deserializeValue, digitCountAutomatically, evaluateAutomatically, evaluateWithAnalysis, formatAutomatically, formatDigitCountForInspector, formatForCopy, formatForHighPrecisionExport, formatPrimeFactors, inspectAutomatically, serializeValue } from "../src/engine.js";
 
 test("verifies prime and composite exact integers within the deterministic range", () => {
   const prime = analyzePrimality(evaluateAutomatically("97"));
@@ -28,6 +28,19 @@ test("preserves primality through the worker-safe value round trip", () => {
   const calculated = evaluateWithAnalysis("7");
   const restored = deserializeValue(serializeValue(calculated));
   assert.deepEqual(restored.primality, calculated.primality);
+});
+
+test("calculates and preserves bounded exact prime factors", () => {
+  const calculated = evaluateWithAnalysis("-756");
+  assert.equal(formatPrimeFactors(calculated.factorization), "−1 × 2² × 3³ × 7");
+  assert.equal(calculated.factorization?.certainty, "verified");
+  const restored = deserializeValue(serializeValue(calculated));
+  assert.deepEqual(restored.factorization, calculated.factorization);
+  assert.equal(inspectAutomatically(restored).facts?.[0]?.value, "−1 × 2² × 3³ × 7");
+});
+
+test("does not factor exact integers outside the safe trial-division frontier", () => {
+  assert.equal(analyzePrimeFactors(evaluateAutomatically("10000000019")), null);
 });
 
 test("does not classify Decimal results lacking an independent integer reconstruction", () => {

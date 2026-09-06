@@ -1018,6 +1018,14 @@ export function inspectAutomatically(value, options = {}) {
     representation: "arbitrary-size integer",
     exactness: "exact",
     precision: "all digits retained",
+    facts: value.factorization ? [{
+      id: "prime-factors",
+      label: "prime factors",
+      value: formatPrimeFactors(value.factorization),
+      certainty: "verified",
+      ruleId: "factorization.trial-division",
+      detail: `Every possible divisor through √n was tested; factorization is limited to |n| ≤ ${value.factorization.limit}.`,
+    }] : [],
   };
   if (value.kind === "exact-rational") return {
     ...formatAutomatically(value, options),
@@ -1131,6 +1139,41 @@ function millerRabin(integer, bases) {
   return true;
 }
 
+const factorizationLimit = 10_000_000_000n;
+const superscriptDigits = { 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹" };
+
+export function formatPrimeFactors(factorization) {
+  if (!factorization?.factors?.length) return null;
+  const terms = factorization.factors.map(({ prime, exponent }) => `${prime}${exponent > 1 ? String(exponent).split("").map((digit) => superscriptDigits[digit]).join("") : ""}`);
+  return `${factorization.negative ? "−1 × " : ""}${terms.join(" × ")}`;
+}
+
+// Trial division is a proof, but its cost grows with √n. Keep it strictly
+// bounded and only publish factors for exact integers inside that frontier.
+export function analyzePrimeFactors(value) {
+  if (!value?.exactInteger || !/^-?\d+$/.test(value.exactInteger)) return null;
+  const integer = BigInt(value.exactInteger);
+  const negative = integer < 0n;
+  let remaining = negative ? -integer : integer;
+  if (remaining < 2n || remaining > factorizationLimit) return null;
+  const factors = [];
+  const divideOut = (prime) => {
+    let exponent = 0;
+    while (remaining % prime === 0n) { remaining /= prime; exponent += 1; }
+    if (exponent) factors.push({ prime: prime.toString(), exponent });
+  };
+  divideOut(2n);
+  for (let divisor = 3n; divisor * divisor <= remaining; divisor += 2n) divideOut(divisor);
+  if (remaining > 1n) factors.push({ prime: remaining.toString(), exponent: 1 });
+  return {
+    factors,
+    negative,
+    certainty: "verified",
+    method: "trial division through √n",
+    limit: factorizationLimit.toString(),
+  };
+}
+
 export function analyzePrimality(value) {
   if (!value?.exactInteger || !/^-?\d+$/.test(value.exactInteger)) return null;
   const integer = BigInt(value.exactInteger);
@@ -1148,7 +1191,8 @@ export function analyzePrimality(value) {
 export function evaluateWithAnalysis(expression, references = new Map(), options = {}) {
   const value = evaluateAutomatically(expression, references, options);
   const primality = analyzePrimality(value);
-  return primality ? { ...value, primality } : value;
+  const factorization = analyzePrimeFactors(value);
+  return primality || factorization ? { ...value, ...(primality ? { primality } : {}), ...(factorization ? { factorization } : {}) } : value;
 }
 
 // Browser storage holds plain JSON, so preserve the engine value as a string and
@@ -1171,7 +1215,11 @@ export function deserializeValue(value) {
     // Analysis travels with a worker result, but is not part of an exact
     // number's mathematical representation. Restore it explicitly after
     // rebuilding the BigInt-backed value for the UI.
-    return value.primality ? { ...restored, primality: value.primality } : restored;
+    return {
+      ...restored,
+      ...(value.primality ? { primality: value.primality } : {}),
+      ...(value.factorization ? { factorization: value.factorization } : {}),
+    };
   }
   if (isStructuralPower(value)) return deserializeStructuralValue(value);
   if (isExtendedScale(value)) return deserializeExtendedScale(value);
