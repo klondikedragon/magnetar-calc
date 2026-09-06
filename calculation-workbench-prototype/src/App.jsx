@@ -109,12 +109,17 @@ export function App() {
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [provenanceOpen, setProvenanceOpen] = useState(false);
+  const [fullInfoOpen, setFullInfoOpen] = useState(false);
+  const [fullInfoSubject, setFullInfoSubject] = useState(null);
   const [expressionLines, setExpressionLines] = useState(1);
   const expressionRef = useRef(null);
   const memoryFeedbackTimer = useRef(null);
   const memoryDialogRef = useRef(null);
   const memoryCloseRef = useRef(null);
   const priorFocusRef = useRef(null);
+  const fullInfoDialogRef = useRef(null);
+  const fullInfoCloseRef = useRef(null);
+  const fullInfoPriorFocusRef = useRef(null);
   const jobCounterRef = useRef(0);
   const workerRef = useRef(null);
   const exportWorkerRef = useRef(null);
@@ -321,7 +326,7 @@ export function App() {
 
   useEffect(() => {
     const routeKeyboard = (event) => {
-      if (memoryOpen || functionBrowserOpen || isEditableElement(event.target)) return;
+      if (memoryOpen || functionBrowserOpen || fullInfoOpen || isEditableElement(event.target)) return;
       const selectable = selectableContainer(event.target);
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
         event.preventDefault();
@@ -340,7 +345,7 @@ export function App() {
     };
     window.addEventListener("keydown", routeKeyboard);
     return () => window.removeEventListener("keydown", routeKeyboard);
-  }, [expression, memoryOpen, functionBrowserOpen]);
+  }, [expression, memoryOpen, functionBrowserOpen, fullInfoOpen]);
 
   useEffect(() => {
     if (!memoryOpen) return;
@@ -358,6 +363,22 @@ export function App() {
     window.addEventListener("keydown", trapFocus);
     return () => window.removeEventListener("keydown", trapFocus);
   }, [memoryOpen]);
+
+  useEffect(() => {
+    if (!fullInfoOpen) return;
+    const trapFocus = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); closeFullInfo(); return; }
+      if (event.key !== "Tab") return;
+      const focusable = [...(fullInfoDialogRef.current?.querySelectorAll("button, [href], textarea, input, select, [tabindex]:not([tabindex='-1'])") ?? [])].filter((element) => !element.hasAttribute("disabled"));
+      if (!focusable.length) return;
+      const index = focusable.indexOf(document.activeElement);
+      if (event.shiftKey && index <= 0) { event.preventDefault(); focusable.at(-1)?.focus(); }
+      else if (!event.shiftKey && index === focusable.length - 1) { event.preventDefault(); focusable[0]?.focus(); }
+    };
+    requestAnimationFrame(() => fullInfoCloseRef.current?.focus());
+    window.addEventListener("keydown", trapFocus);
+    return () => window.removeEventListener("keydown", trapFocus);
+  }, [fullInfoOpen]);
 
   useEffect(() => {
     if (!functionBrowserOpen) return undefined;
@@ -379,6 +400,14 @@ export function App() {
       setTimeout(() => setToast(""), 1500);
     }
     catch { setToast("Copy is available in the browser"); }
+  }
+
+  async function copyText(text, label = "Value") {
+    try {
+      await navigator.clipboard.writeText(String(text));
+      setToast(`${label} copied`);
+      setTimeout(() => setToast(""), 1500);
+    } catch { setToast("Copy is available in the browser"); }
   }
 
   function cancelHighPrecisionExport() {
@@ -645,6 +674,8 @@ export function App() {
 
   function openMemory() { priorFocusRef.current = document.activeElement; setMemoryOpen(true); }
   function closeMemory() { setMemoryOpen(false); requestAnimationFrame(() => (priorFocusRef.current instanceof HTMLElement ? priorFocusRef.current : expressionRef.current)?.focus()); }
+  function openFullInfo(subject) { fullInfoPriorFocusRef.current = document.activeElement; setProvenanceOpen(false); setFullInfoSubject(subject); setFullInfoOpen(true); }
+  function closeFullInfo() { setFullInfoOpen(false); setProvenanceOpen(false); requestAnimationFrame(() => { setFullInfoSubject(null); (fullInfoPriorFocusRef.current instanceof HTMLElement ? fullInfoPriorFocusRef.current : expressionRef.current)?.focus(); }); }
   function copyResult(value) { if (!hasTextSelection()) copyDisplayed(value); }
   function toggleInspector() { if (!hasTextSelection()) setInspectorOpen((open) => { if (open) setProvenanceOpen(false); return !open; }); }
   function resultLabel(formatted, action) {
@@ -680,6 +711,9 @@ export function App() {
     }
     return <><span className="sign">{formatted.sign}</span><span>{formatted.significand}</span>{formatted.exponent && <span className="result-exponent">× {base === 10 ? "10" : base}<sup>{formatted.exponent}</sup></span>}</>;
   };
+  const InspectorCopyValue = ({ label, text, className = "" }) => <button className={`inspector-copy-value ${className}`} onClick={() => copyText(text, label)} title={`Copy ${label}: ${text}`}><span>{label}</span><b>{text}</b></button>;
+  const InspectorSummary = ({ data, subject }) => <div className="inspector inspector-summary"><InspectorCopyValue label="engine" text={data.engine ?? "placeholder"} /><InspectorCopyValue label="status" text={data.precisionLost ? "magnitude-only" : data.exactness ?? "approximate"} /><InspectorCopyValue label="precision" text={data.precision ?? `${precisionLabel} digits`} /><button className="full-info-button" onClick={() => openFullInfo(subject)} title="Open complete value details">Full info</button></div>;
+  const FullInfoDetails = ({ value, data, digits, sourceExpression }) => <section className="full-info-details"><div className="full-info-summary"><InspectorCopyValue label="engine" text={data.engine ?? value.engineLabel ?? "placeholder"} /><InspectorCopyValue label="representation" text={data.representation ?? "native"} /><InspectorCopyValue label="precision" text={data.precision ?? `${precisionLabel} digits`} /><InspectorCopyValue label="status" text={data.precisionLost ? "magnitude-only" : data.exactness ?? "approximate"} />{value.exactInteger && <InspectorCopyValue label="integer" text="exact" />}{primalityLabel(value) && <InspectorCopyValue label="primality" text={`${primalityLabel(value)}${value.primality?.method ? ` · ${value.primality.method}` : ""}`} />}{digits?.value && <InspectorCopyValue label={`base-${base} digits`} text={`${formatDigitCountForInspector(digits, { groupDigits })} · ${digits.certainty}`} />}</div>{data.canonical && <section className="full-info-structural"><p>STRUCTURAL FORM</p><InspectorCopyValue className="wide-value" label="canonical form" text={data.canonical} />{data.derivation && <InspectorCopyValue className="wide-value" label="derivation" text={data.derivation} />}</section>}{data.facts?.length > 0 && <section className="magnitude-dossier" aria-label="Magnitude dossier"><p>MAGNITUDE DOSSIER</p>{data.facts.map((fact) => <button className="magnitude-fact" key={fact.id} onClick={() => copyText(fact.value, fact.label)} title={`Copy ${fact.label}: ${fact.value}`}><span>{fact.label}</span><b>{fact.value}</b><small>{fact.certainty}</small></button>)}</section>}<div className="full-info-actions"><button onClick={() => copyDisplayed(value)} title={value?.kind === "steinhaus-moser" || value?.kind === "structural-power" ? "Copy the canonical construction syntax" : "Copy the result in the current display format"}>Copy result</button>{value?.kind !== "steinhaus-moser" && value?.kind !== "structural-power" && <button onClick={() => exportHighPrecision(sourceExpression)} disabled={Boolean(exportWorkerRef.current)} title="Recalculate this expression with up to 10,000,000 significant digits, then copy it">Copy (10M digits)</button>}{data.provenance?.length > 0 && <button aria-expanded={provenanceOpen} onClick={() => setProvenanceOpen((open) => !open)} title="Show the rules, assumptions, evidence, and references behind these facts">Provenance</button>}</div>{provenanceOpen && data.provenance?.length > 0 && <section className="provenance-panel" aria-label="Calculation provenance"><p>CALCULATION PROVENANCE</p>{data.provenance.map((claim) => <article className="provenance-claim" key={claim.claim}><header><button className="provenance-claim-copy" onClick={() => copyText(claim.claim, "Claim")} title={`Copy claim: ${claim.claim}`}>{claim.claim}</button><small>{claim.certainty}</small></header><button className="provenance-rule-copy" onClick={() => copyText(claim.rule, "Rule")} title={`Copy rule: ${claim.rule}`}>{claim.rule}</button><button className="provenance-approach-copy" onClick={() => copyText(claim.approach, "Approach")} title="Copy evidence approach">{claim.approach}</button><div className="provenance-inputs"><span>Inputs</span><button onClick={() => copyText(claim.inputs.base, "Base")} title="Copy base">base {claim.inputs.base}</button><button onClick={() => copyText(claim.inputs.exponent, "Exponent")} title="Copy exponent">exponent {claim.inputs.exponent}</button></div><div className="provenance-sources">{claim.sources.map((source) => <a key={source.id} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</div></article>)}</section>}</section>;
   const InspectionDetails = ({ value, data, digits, sourceExpression }) => <div className="inspector inspection-details"><div><span>engine</span><b>{data.engine ?? value.engineLabel ?? "placeholder"}</b></div><div><span>representation</span><b>{data.representation ?? "native"}</b></div><div><span>precision</span><b>{data.precision ?? `${precisionLabel} digits`}</b></div><div><span>status</span><b>{data.precisionLost ? "magnitude-only" : data.exactness ?? "approximate"}</b></div>{data.canonical && <div className="structural-detail"><span>canonical form</span><b>{data.canonical}</b><small>{data.derivation}</small></div>}{value.exactInteger && <div><span>integer</span><b>exact</b></div>}{primalityLabel(value) && <div><span>primality</span><b>{primalityLabel(value)}{value.primality?.method && <small> · {value.primality.method}</small>}</b></div>}{digits?.value && <div className="digit-count"><span>base-{base} digits</span><b>{formatDigitCountForInspector(digits, { groupDigits })}</b><small>{digits.certainty}</small></div>}{data.facts?.length > 0 && <section className="magnitude-dossier" aria-label="Magnitude dossier"><p>MAGNITUDE DOSSIER</p>{data.facts.map((fact) => <div className="magnitude-fact" key={fact.id}><span>{fact.label}</span><b>{fact.value}</b><small>{fact.certainty}</small></div>)}</section>}<div className="inspector-actions"><button onClick={() => copyDisplayed(value)} title={value?.kind === "steinhaus-moser" || value?.kind === "structural-power" ? "Copy the canonical construction syntax" : "Copy the result in the current display format"}>Copy</button>{value?.kind !== "steinhaus-moser" && value?.kind !== "structural-power" && <button onClick={() => exportHighPrecision(sourceExpression)} disabled={Boolean(exportWorkerRef.current)} title="Recalculate this expression with up to 10,000,000 significant digits, then copy it">Copy (10M digits)</button>}{data.provenance?.length > 0 && <button aria-expanded={provenanceOpen} onClick={() => setProvenanceOpen((open) => !open)} title="Show the rules, assumptions, evidence, and references behind these facts">Provenance</button>}</div>{provenanceOpen && data.provenance?.length > 0 && <section className="provenance-panel" aria-label="Calculation provenance"><p>CALCULATION PROVENANCE</p>{data.provenance.map((claim) => <article className="provenance-claim" key={claim.claim}><header><b>{claim.claim}</b><small>{claim.certainty}</small></header><span>{claim.rule}</span><p>{claim.approach}</p><small>Inputs: base {claim.inputs.base}; exponent {claim.inputs.exponent}</small><div className="provenance-sources">{claim.sources.map((source) => <a key={source.id} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</div></article>)}</section>}</div>;
   function recallMemory() { if (memory?.expression) { updatePreview(`${expression}${expression ? " " : ""}(${memory.expression})`); requestAnimationFrame(() => expressionRef.current?.focus()); setMemoryOpen(false); } }
   return <main className="app-shell">
@@ -688,7 +722,7 @@ export function App() {
         <div className="stage-topline"><span>ACTIVE EXPRESSION</span><span className={expressionError ? "stage-hint expression-warning" : "stage-hint"}>{expressionError ? `⚠ ${expressionError}` : "Enter to save to History"}</span></div>
         <textarea ref={expressionRef} rows="1" aria-label="Expression" spellCheck={false} value={expression} onChange={(event) => updatePreview(event.target.value)} onInput={(event) => sizeExpression(event.currentTarget)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); commit(); } if (event.key === "Escape") { event.preventDefault(); updatePreview(""); } }} />
         <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={previewTooltip} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{(showCalculating || calculation.commitOnSuccess) ? <span className="calculation-status" role="status">◌ Computing exact result {calculation.commitOnSuccess && "↳ History"}<button onClick={cancelCalculation}>Cancel</button></span> : calculation.status === "timed-out" ? <span className="toast">Exact calculation reached its time budget</span> : toast && <span className="toast" role="status">{toast}</span>}</div>
-        {inspectorOpen && <InspectionDetails value={previewValue} data={inspection} digits={digitCount} sourceExpression={expression} />}
+        {inspectorOpen && <InspectorSummary data={inspection} subject={{ value: previewValue, data: inspection, digits: digitCount, sourceExpression: expression }} />}
         <div className="result-meta">{preview.steinhaus ? <><span>form <b className="selectable-text">{preview.canonical}</b></span><span>symbolic exact</span><span>{previewValue.engineLabel}</span></> : preview.structuralPower ? <><span>form <b className="selectable-text">{preview.canonical}</b></span><span>symbolic exact</span><span>{inspection.facts?.find((fact) => fact.id === "decimal-digit-order")?.value ? `digit-count order ${inspection.facts.find((fact) => fact.id === "decimal-digit-order").value}` : "exact power structure"}</span></> : <><span>sign <b className="selectable-text">{preview.sign || "+"}</b></span><span>exponent <b className="selectable-text">{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"}</span>{primalityLabel(previewValue) && <span className={`primality-meta ${previewValue.primality.kind}`} title={previewValue.primality.method}>{primalityLabel(previewValue)}</span>}</>}<span>click result to inspect</span></div>
         {exportStatus && <span className="export-status" role="status">{exportStatus}{exportWorkerRef.current && <button onClick={cancelHighPrecisionExport}>Cancel</button>}</span>}
         <span className="sr-only" role="status" aria-live="polite">{expressionError || toast || exportStatus}</span>
@@ -698,7 +732,8 @@ export function App() {
     </section>
     {exportDialogOpen && <div className="notebook-overlay" role="dialog" aria-modal="true" aria-label="Download notebook"><div className="notebook-card"><div className="panel-heading"><div><p className="eyebrow">DOWNLOAD NOTEBOOK</p><h2>Choose what to include</h2></div><button className="quiet" onClick={() => setExportDialogOpen(false)}>Close</button></div><fieldset className="export-options"><legend>History contents</legend><label><input type="radio" name="answers" checked={exportAnswers === "none"} onChange={() => setExportAnswers("none")} /> Expressions only</label><label><input type="radio" name="answers" checked={exportAnswers === "current"} onChange={() => setExportAnswers("current")} /> With answers</label><label><input type="radio" name="answers" checked={exportAnswers === "10m"} onChange={() => setExportAnswers("10m")} /> With answers (10M digits)</label></fieldset><label className="export-view-option"><input type="checkbox" checked={exportView} onChange={(event) => setExportView(event.target.checked)} /> Include current view settings</label><p className="notebook-note">Imported notebooks always recalculate expressions; saved answers are archival metadata.</p><div className="notebook-actions"><button className="quiet" onClick={() => setExportDialogOpen(false)}>Cancel</button><button className="download-button" onClick={exportNotebook}>Download JSON</button></div></div></div>}
     {pendingImport && <div className="notebook-overlay" role="dialog" aria-modal="true" aria-label="Confirm notebook import"><div className="notebook-card"><p className="eyebrow">IMPORT NOTEBOOK</p><h2>Replace the current workbench?</h2><p className="notebook-note"><b>{pendingImport.label}</b> has {pendingImport.notebook.history.length} History entries. Every expression will be recalculated; saved answers are never trusted.</p>{pendingImport.notebook.view && <p className="notebook-note">Its saved view settings will also be applied.</p>}<div className="notebook-actions"><button className="quiet" onClick={() => setPendingImport(null)}>Cancel</button><button className="download-button" onClick={confirmNotebookImport}>Import and recalculate</button></div></div></div>}
-    {memoryOpen && memory && <div className="memory-overlay" role="dialog" aria-modal="true" aria-label="Memory details"><div className="memory-card" ref={memoryDialogRef}><div className="panel-heading"><div><p className="eyebrow">MEMORY</p><h2>Accumulated expression</h2></div><button className="quiet" ref={memoryCloseRef} onClick={closeMemory}>Close</button></div><p className="memory-expression selectable-text">{memory.expression}</p><button className="memory-answer selectable-output" aria-label={resultLabel(memoryDisplay, "Memory result")} title={memoryTooltip} onClick={() => { if (!hasTextSelection()) closeMemory(); }}>{renderResultContent(memoryDisplay)}</button><InspectionDetails value={memory.value} data={memoryInspection} digits={memoryDigitCount} sourceExpression={memory.expression} /><div className="memory-actions"><button className="use-button" onClick={recallMemory}>Recall into expression</button><button className="quiet" onClick={() => { setMemory(null); closeMemory(); }}>Clear memory</button></div></div></div>}
+    {memoryOpen && memory && <div className="memory-overlay" role="dialog" aria-modal="true" aria-label="Memory details"><div className="memory-card" ref={memoryDialogRef}><div className="panel-heading"><div><p className="eyebrow">MEMORY</p><h2>Accumulated expression</h2></div><button className="quiet" ref={memoryCloseRef} onClick={closeMemory}>Close</button></div><p className="memory-expression selectable-text">{memory.expression}</p><button className="memory-answer selectable-output" aria-label={resultLabel(memoryDisplay, "Memory result")} title={memoryTooltip} onClick={() => { if (!hasTextSelection()) closeMemory(); }}>{renderResultContent(memoryDisplay)}</button><InspectorSummary data={memoryInspection} subject={{ value: memory.value, data: memoryInspection, digits: memoryDigitCount, sourceExpression: memory.expression }} /><div className="memory-actions"><button className="use-button" onClick={recallMemory}>Recall into expression</button><button className="quiet" onClick={() => { setMemory(null); closeMemory(); }}>Clear memory</button></div></div></div>}
+    {fullInfoOpen && fullInfoSubject && <div className="full-info-overlay" role="dialog" aria-modal="true" aria-labelledby="full-info-title" onMouseDown={(event) => { if (event.target === event.currentTarget) closeFullInfo(); }}><section className="full-info-card" ref={fullInfoDialogRef}><div className="full-info-header"><div><p className="eyebrow">VALUE INFORMATION</p><h2 id="full-info-title">Full calculation details</h2></div><button className="quiet" ref={fullInfoCloseRef} onClick={closeFullInfo}>Close</button></div><div className="full-info-scroll"><FullInfoDetails {...fullInfoSubject} /></div></section></div>}
     {functionBrowserOpen && <div className="function-browser-overlay" role="dialog" aria-modal="true" aria-labelledby="function-browser-title">
       <section className={`function-browser-card ${functionView}`}>
         <div className="panel-heading"><div><p className="eyebrow">FUNCTION LIBRARY</p><h2 id="function-browser-title">Insert a function</h2></div><button className="quiet" onClick={closeFunctionBrowser}>Close</button></div>
