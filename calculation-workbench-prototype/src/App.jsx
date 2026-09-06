@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, FolderOpen, RotateCcw, Save } from "lucide-react";
+import { BookOpen, Check, Copy, ExternalLink, FolderOpen, Info, RotateCcw, Save } from "lucide-react";
 import { TableVirtuoso, Virtuoso } from "react-virtuoso";
 import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, exportPrecision, formatAutomatically, formatDigitCountForInspector, formatForHighPrecisionExport, inspectAutomatically, serializeValue } from "./engine";
 import { createNotebook, validateNotebook } from "./notebook";
-import { exampleWorkbenches } from "./exampleWorkbenches";
+import { exampleCategories, filterExampleCatalog, sortExampleCatalog } from "./exampleCatalog";
 import { filterFunctionCatalog, functionCategories, functionInsertion } from "./functionCatalog";
-import { useDismissiblePopover } from "./useDismissiblePopover";
 
 const initialHistory = [
   { id: 3, expression: "√(2) + π / 7", value: { kind: "number", number: 1.862012077376797, full: "1.862012077376796985004668721836731291106586140266324758279159345760390983" } },
@@ -101,6 +100,12 @@ export function App() {
   const [exportAnswers, setExportAnswers] = useState("none");
   const [exportView, setExportView] = useState(false);
   const [examplesOpen, setExamplesOpen] = useState(false);
+  const [exampleQuery, setExampleQuery] = useState("");
+  const [exampleCategory, setExampleCategory] = useState("All");
+  const [exampleView, setExampleView] = useState(() => storedWorkspace?.view?.exampleView ?? "grid");
+  const [exampleSort, setExampleSort] = useState(() => storedWorkspace?.view?.exampleSort ?? "category");
+  const [exampleSortDirection, setExampleSortDirection] = useState(() => storedWorkspace?.view?.exampleSortDirection ?? "asc");
+  const [exampleDetails, setExampleDetails] = useState(null);
   const [functionBrowserOpen, setFunctionBrowserOpen] = useState(false);
   const [functionQuery, setFunctionQuery] = useState("");
   const [functionCategory, setFunctionCategory] = useState("All");
@@ -126,15 +131,14 @@ export function App() {
   const exportWorkerRef = useRef(null);
   const notebookOperationRef = useRef(null);
   const importInputRef = useRef(null);
-  const examplesMenuRef = useRef(null);
-  const examplesButtonRef = useRef(null);
+  const exampleSearchRef = useRef(null);
+  const examplePriorFocusRef = useRef(null);
   const functionSearchRef = useRef(null);
   const functionPriorFocusRef = useRef(null);
   const functionSelectionRef = useRef({ start: 0, end: 0 });
   const commitOnSuccessRef = useRef(false);
   const completedExpressionRef = useRef("");
   const copyFeedbackTimerRef = useRef(null);
-  useDismissiblePopover(examplesOpen, () => setExamplesOpen(false), examplesMenuRef, examplesButtonRef);
   const focusExpression = () => requestAnimationFrame(() => expressionRef.current?.focus());
   function sizeExpression(input = expressionRef.current) {
     if (!input) return;
@@ -155,20 +159,16 @@ export function App() {
     return () => strip?.removeEventListener("click", returnFocus);
   }, []);
   useEffect(() => {
-    examplesMenuRef.current = document.querySelector(".examples-menu");
-    examplesButtonRef.current = document.querySelector(".examples-button");
-  });
-  useEffect(() => {
     try {
       window.localStorage.setItem(storageKey, JSON.stringify({
         expression, nextId,
-        view: { base, precision, notation, groupDigits, activeMode, functionView },
+        view: { base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection },
         previewValue: serializeValue(previewValue),
         history: history.map((item) => ({ ...item, value: serializeValue(item.value) })),
         memory: memory ? { ...memory, value: serializeValue(memory.value) } : null,
       }));
     } catch { /* Storage is optional; the calculator remains usable without it. */ }
-  }, [expression, base, precision, notation, groupDigits, activeMode, functionView, nextId, previewValue, history, memory]);
+  }, [expression, base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection, nextId, previewValue, history, memory]);
   const precisionLabel = useMemo(() => precision.toLocaleString(), [precision]);
   const paletteKeys = activeMode === "Number theory" ? numberTheoryKeys : activeMode === "Sequences" ? sequenceKeys : activeMode === "Programmer" ? keys : activeMode === "Trigonometry" ? keys : activeMode === "Scientific" ? keys : activeMode === "Ordinal / hierarchy" ? ordinalKeys : keys;
   const paletteHelp = activeMode === "Sequences" ? sequenceHelp : activeMode === "Ordinal / hierarchy" ? ordinalHelp : {};
@@ -176,6 +176,7 @@ export function App() {
   const inspection = inspectAutomatically(previewValue, { base, precision, notation });
   const digitCount = digitCountAutomatically(previewValue, base);
   const filteredFunctions = useMemo(() => filterFunctionCatalog(functionQuery, functionCategory), [functionQuery, functionCategory]);
+  const filteredExamples = useMemo(() => sortExampleCatalog(filterExampleCatalog(exampleQuery, exampleCategory), exampleSort, exampleSortDirection), [exampleQuery, exampleCategory, exampleSort, exampleSortDirection]);
 
   const referenceValues = useMemo(() => new Map([...history.flatMap((item, index) => {
     return [[`@history(${item.id})`, item.value], [`@history(-${index + 1})`, item.value]];
@@ -329,7 +330,7 @@ export function App() {
 
   useEffect(() => {
     const routeKeyboard = (event) => {
-      if (memoryOpen || functionBrowserOpen || fullInfoOpen || isEditableElement(event.target)) return;
+      if (memoryOpen || functionBrowserOpen || fullInfoOpen || examplesOpen || exampleDetails || isEditableElement(event.target)) return;
       const selectable = selectableContainer(event.target);
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
         event.preventDefault();
@@ -348,7 +349,7 @@ export function App() {
     };
     window.addEventListener("keydown", routeKeyboard);
     return () => window.removeEventListener("keydown", routeKeyboard);
-  }, [expression, memoryOpen, functionBrowserOpen, fullInfoOpen]);
+  }, [expression, memoryOpen, functionBrowserOpen, fullInfoOpen, examplesOpen, exampleDetails]);
 
   useEffect(() => {
     if (!memoryOpen) return;
@@ -394,6 +395,19 @@ export function App() {
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [functionBrowserOpen]);
+
+  useEffect(() => {
+    if (!examplesOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      if (exampleDetails) { setExampleDetails(null); return; }
+      closeExamplesBrowser();
+    };
+    requestAnimationFrame(() => exampleSearchRef.current?.focus());
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [examplesOpen, exampleDetails]);
 
   function markCopied(target) {
     if (!target) return;
@@ -549,7 +563,7 @@ export function App() {
     return recomputed;
   }
 
-  function currentViewSettings() { return { base, precision, notation, groupDigits, activeMode }; }
+  function currentViewSettings() { return { base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection }; }
 
   function openExportDialog() {
     setExportAnswers("none");
@@ -597,12 +611,17 @@ export function App() {
     if (["auto", "decimal", "scientific", "engineering", "expanded"].includes(view.notation)) setNotation(view.notation);
     if (typeof view.groupDigits === "boolean") setGroupDigits(view.groupDigits);
     if (modes.includes(view.activeMode)) setActiveMode(view.activeMode);
+    if (["compact", "detailed", "grid"].includes(view.functionView)) setFunctionView(view.functionView);
+    if (["compact", "detailed", "grid"].includes(view.exampleView)) setExampleView(view.exampleView);
+    if (["category", "name", "description"].includes(view.exampleSort)) setExampleSort(view.exampleSort);
+    if (["asc", "desc"].includes(view.exampleSortDirection)) setExampleSortDirection(view.exampleSortDirection);
   }
 
   function queueNotebookImport(candidate, label) {
     try {
       setPendingImport({ notebook: validateNotebook(candidate), label });
       setExamplesOpen(false);
+      setExampleDetails(null);
     } catch (error) {
       setToast(error.message || "Notebook could not be read");
       setTimeout(() => setToast(""), 2200);
@@ -641,6 +660,25 @@ export function App() {
     if (!file) return;
     try { queueNotebookImport(JSON.parse(await file.text()), file.name); }
     catch { setToast("That file is not valid JSON"); setTimeout(() => setToast(""), 2200); }
+  }
+
+  function openExamplesBrowser() {
+    examplePriorFocusRef.current = document.activeElement;
+    setExampleQuery("");
+    setExampleCategory("All");
+    setExampleDetails(null);
+    setExamplesOpen(true);
+  }
+
+  function closeExamplesBrowser() {
+    setExamplesOpen(false);
+    setExampleDetails(null);
+    requestAnimationFrame(() => (examplePriorFocusRef.current instanceof HTMLElement ? examplePriorFocusRef.current : expressionRef.current)?.focus());
+  }
+
+  function toggleExampleSort(column) {
+    if (exampleSort === column) setExampleSortDirection((direction) => direction === "asc" ? "desc" : "asc");
+    else { setExampleSort(column); setExampleSortDirection("asc"); }
   }
 
   function openFunctionBrowser() {
@@ -778,10 +816,7 @@ export function App() {
           <div className="panel-heading">
             <div><p className="eyebrow">HISTORY</p><h2>{history.length} calculations</h2></div>
             <div className="history-toolbar">
-              <div className="examples-menu">
-                <button className="quiet examples-button" aria-expanded={examplesOpen} aria-haspopup="menu" title="Load an example history" onClick={() => setExamplesOpen((open) => !open)}>Examples</button>
-                {examplesOpen && <div className="examples-popover" role="menu">{Object.entries(exampleWorkbenches).map(([key, example]) => <button key={key} role="menuitem" onClick={() => queueNotebookImport(example, example.title)}><b>{example.title}</b><small>{example.description}</small></button>)}</div>}
-              </div>
+              <button className="quiet examples-button" aria-haspopup="dialog" title="Browse verified example notebooks" onClick={openExamplesBrowser}>Examples</button>
               <button className="history-icon" aria-label="Download History notebook" title="Download History notebook" onClick={openExportDialog}><Save aria-hidden="true" /></button><button className="history-icon" aria-label="Import History notebook" title="Import History notebook" onClick={() => importInputRef.current?.click()}><FolderOpen aria-hidden="true" /></button><button className="history-icon reset-history" aria-label="Reset History" title="Reset History" onClick={() => { setHistory([]); setNextId(1); }}><RotateCcw aria-hidden="true" /></button><input ref={importInputRef} className="file-input" type="file" accept="application/json,.json" onChange={readNotebookFile} />
             </div>
           </div>
@@ -813,6 +848,41 @@ export function App() {
     {pendingImport && <div className="notebook-overlay" role="dialog" aria-modal="true" aria-label="Confirm notebook import"><div className="notebook-card"><p className="eyebrow">IMPORT NOTEBOOK</p><h2>Replace the current workbench?</h2><p className="notebook-note"><b>{pendingImport.label}</b> has {pendingImport.notebook.history.length} History entries. Every expression will be recalculated; saved answers are never trusted.</p>{pendingImport.notebook.view && <p className="notebook-note">Its saved view settings will also be applied.</p>}<div className="notebook-actions"><button className="quiet" onClick={() => setPendingImport(null)}>Cancel</button><button className="download-button" onClick={confirmNotebookImport}>Import and recalculate</button></div></div></div>}
     {memoryOpen && memory && <div className="memory-overlay" role="dialog" aria-modal="true" aria-label="Memory details"><div className="memory-card" ref={memoryDialogRef}><div className="panel-heading"><div><p className="eyebrow">MEMORY</p><h2>Accumulated expression</h2></div><button className="quiet" ref={memoryCloseRef} onClick={closeMemory}>Close</button></div><p className="memory-expression selectable-text">{memory.expression}</p><button className="memory-answer selectable-output copyable-value" aria-label={resultLabel(memoryDisplay, "Copy memory result")} title={`${memoryTooltip} · click to copy`} onClick={() => copyResult(memory.value, "memory-result")}>{renderResultContent(memoryDisplay)}<CopyFeedback target="memory-result" /></button><InspectorSummary data={memoryInspection} subject={{ value: memory.value, data: memoryInspection, digits: memoryDigitCount, sourceExpression: memory.expression }} /><div className="memory-actions"><button className="use-button" onClick={recallMemory}>Recall into expression</button><button className="quiet" onClick={() => { setMemory(null); closeMemory(); }}>Clear memory</button></div></div></div>}
     {fullInfoOpen && fullInfoSubject && <div className="full-info-overlay" role="dialog" aria-modal="true" aria-labelledby="full-info-title" onMouseDown={(event) => { if (event.target === event.currentTarget) closeFullInfo(); }}><section className="full-info-card" ref={fullInfoDialogRef}><div className="full-info-header"><div><p className="eyebrow">VALUE INFORMATION</p><h2 id="full-info-title">Full calculation details</h2></div><button className="quiet" ref={fullInfoCloseRef} onClick={closeFullInfo}>Close</button></div><div className="full-info-scroll"><FullInfoDetails {...fullInfoSubject} /></div></section></div>}
+    {examplesOpen && <div className="example-browser-overlay" role="dialog" aria-modal="true" aria-labelledby="example-browser-title" onMouseDown={(event) => { if (event.target === event.currentTarget) closeExamplesBrowser(); }}>
+      <section className={`example-browser-card ${exampleView}`}>
+        <div className="panel-heading"><div><p className="eyebrow">EXAMPLES LIBRARY</p><h2 id="example-browser-title">Explore a calculation</h2></div><button className="quiet" onClick={closeExamplesBrowser}>Close</button></div>
+        <input ref={exampleSearchRef} className="function-search" type="search" aria-label="Search examples" placeholder="Search names, concepts, sources, and descriptions" value={exampleQuery} onChange={(event) => setExampleQuery(event.target.value)} />
+        <div className="function-browser-controls">
+          <label>Category <select value={exampleCategory} onChange={(event) => setExampleCategory(event.target.value)}>{exampleCategories.map((category) => <option key={category}>{category}</option>)}</select></label>
+          <span className="function-count">{filteredExamples.length} verified examples</span>
+          <div className="function-view-switch" aria-label="Examples browser view">
+            <button aria-pressed={exampleView === "compact"} onClick={() => setExampleView("compact")}>Compact</button>
+            <button aria-pressed={exampleView === "detailed"} onClick={() => setExampleView("detailed")}>Detailed</button>
+            <button aria-pressed={exampleView === "grid"} onClick={() => setExampleView("grid")}>Grid</button>
+          </div>
+        </div>
+        <div className="example-results" aria-label="Matching examples">
+          {exampleView === "grid" ? <TableVirtuoso style={{ height: "100%" }} data={filteredExamples} computeItemKey={(_, entry) => entry.id} fixedHeaderContent={() => <tr>
+            <th><button className="example-sort" onClick={() => toggleExampleSort("category")}>Category{exampleSort === "category" && (exampleSortDirection === "asc" ? " ↑" : " ↓")}</button></th>
+            <th><button className="example-sort" onClick={() => toggleExampleSort("name")}>Example{exampleSort === "name" && (exampleSortDirection === "asc" ? " ↑" : " ↓")}</button></th>
+            <th><button className="example-sort" onClick={() => toggleExampleSort("description")}>Description{exampleSort === "description" && (exampleSortDirection === "asc" ? " ↑" : " ↓")}</button></th>
+            <th>References</th><th>Actions</th>
+          </tr>} itemContent={(_, entry) => <><td>{entry.category}</td><td><b>{entry.name}</b></td><td>{entry.description}</td><td>{entry.references.map((reference) => <a key={reference.url} href={reference.url} target="_blank" rel="noreferrer" title={reference.label}>Open <ExternalLink aria-hidden="true" /></a>)}</td><td><span className="example-actions"><button className="example-info-button" onClick={() => setExampleDetails(entry)} aria-label={`Read about ${entry.name}`} title="More information"><Info aria-hidden="true" /> Info</button><button className="example-load-button" onClick={() => queueNotebookImport(entry.notebook, entry.name)}>Load</button></span></td></>} /> : <Virtuoso style={{ height: "100%" }} data={filteredExamples} computeItemKey={(_, entry) => entry.id} increaseViewportBy={240} itemContent={(_, entry) => <article className="example-list-item"><div className="example-list-heading"><span className="function-category">{entry.category}</span><b>{entry.name}</b></div>{exampleView === "detailed" && <><p>{entry.description}</p><div className="example-reference-list">{entry.references.map((reference) => <a key={reference.url} href={reference.url} target="_blank" rel="noreferrer">{reference.label} <ExternalLink aria-hidden="true" /></a>)}</div></>}<div className="example-actions"><button className="example-info-button" onClick={() => setExampleDetails(entry)}><Info aria-hidden="true" /> More info</button><button className="example-load-button" onClick={() => queueNotebookImport(entry.notebook, entry.name)}>Load</button></div></article>} />}
+        </div>
+        <p className="function-browser-note">Only source-backed, tested notebooks appear here. Search terms are combined; quote a phrase to keep its words together. Draft ideas remain out of the library until verified.</p>
+      </section>
+    </div>}
+    {exampleDetails && <div className="example-details-overlay" role="dialog" aria-modal="true" aria-labelledby="example-details-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setExampleDetails(null); }}>
+      <section className="example-details-card">
+        <div className="full-info-header"><div><p className="eyebrow">ABOUT THIS EXAMPLE</p><h2 id="example-details-title">{exampleDetails.name}</h2></div><button className="quiet" onClick={() => setExampleDetails(null)}>Close</button></div>
+        <div className="example-details-scroll">
+          {exampleDetails.details.overview.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+          <h3>Try it</h3><ol>{exampleDetails.details.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+          <h3>References</h3><ul>{exampleDetails.references.map((reference) => <li key={reference.url}><a href={reference.url} target="_blank" rel="noreferrer">{reference.label} <ExternalLink aria-hidden="true" /></a></li>)}</ul>
+        </div>
+        <div className="full-info-actions"><button onClick={() => setExampleDetails(null)}>Back to examples</button><button className="download-button" onClick={() => queueNotebookImport(exampleDetails.notebook, exampleDetails.name)}><BookOpen aria-hidden="true" /> Load example</button></div>
+      </section>
+    </div>}
     {functionBrowserOpen && <div className="function-browser-overlay" role="dialog" aria-modal="true" aria-labelledby="function-browser-title">
       <section className={`function-browser-card ${functionView}`}>
         <div className="panel-heading"><div><p className="eyebrow">FUNCTION LIBRARY</p><h2 id="function-browser-title">Insert a function</h2></div><button className="quiet" onClick={closeFunctionBrowser}>Close</button></div>
