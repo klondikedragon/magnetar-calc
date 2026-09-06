@@ -24,7 +24,7 @@ test("preserves numerical provenance through serialization", () => {
 });
 
 test("labels the wide-range backend as an estimate rather than an exact value", () => {
-  const value = evaluateAutomatically("12^23^13");
+  const value = evaluateAutomatically("5↑↑5");
   assert.equal(value.kind, "break-eternity");
   assert.equal(value.quality.certainty, "magnitude-only");
   assert.equal(inspectAutomatically(value).exactness, "magnitude-only approximation");

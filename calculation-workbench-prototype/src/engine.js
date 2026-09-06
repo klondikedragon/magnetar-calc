@@ -4,6 +4,15 @@ import BreakDecimal from "break_eternity.js";
 import Decimal from "decimal.js";
 import { astToExpression, parseExpression, tokenizeExpression } from "./expressionLanguage.js";
 import { deserializeExactValue, exactParts, isExactValue, serializeExactValue, tryEvaluateExact } from "./exactValues.js";
+import {
+  deserializeStructuralValue,
+  formatStructuralPower,
+  isStructuralPower,
+  serializeStructuralValue,
+  structuralPowerFacts,
+  structuralPowerProvenance,
+  tryEvaluateStructuralPower,
+} from "./structuralValues.js";
 
 function formatNumber(number, base, precision = 48, notation = "auto") {
   if (!Number.isFinite(number)) return { sign: "", significand: "Not a finite number", exponent: "", text: "Not a finite number", full: String(number) };
@@ -891,6 +900,8 @@ export function evaluateAutomatically(expression, references = new Map(), option
   const parsedAst = parseExpression(expression);
   const exact = options.forceDecimal ? null : tryEvaluateExact(parsedAst, references);
   if (exact) return hydrateExactValue(exact);
+  const structuralPower = options.forceDecimal ? null : tryEvaluateStructuralPower(parsedAst, references);
+  if (structuralPower) return structuralPower;
   const ast = materializeExactStructuralAst(parsedAst, references, options);
   const normalizedExpression = astToExpression(ast);
   const structural = steinhausFromAst(ast, references, options);
@@ -900,7 +911,7 @@ export function evaluateAutomatically(expression, references = new Map(), option
   }
   if (ast.type === "reference") {
     const reference = references.get(ast.token);
-    if (reference?.kind === "steinhaus-moser") return reference;
+    if (reference?.kind === "steinhaus-moser" || isStructuralPower(reference)) return reference;
   }
   const structuralHierarchy = normalizedExpression.trim().match(/^fgh([3-5])\(\s*(\d+)\s*\)$/i);
   if (structuralHierarchy) {
@@ -942,6 +953,7 @@ export function formatAutomatically(value, options = {}) {
     name: value.name,
     showSteinhausShape: Boolean(options.showSteinhausShape),
   };
+  if (isStructuralPower(value)) return formatStructuralPower(value);
   if (value.kind === "hierarchy") return { sign: "", significand: `F${value.level}(${value.argument})`, exponent: "", text: `F${value.level}(${value.argument})`, full: value.full, hierarchy: true };
   const formatted = value.kind === "decimal.js"
     ? decimalEngine.format(value, options)
@@ -1008,6 +1020,17 @@ export function inspectAutomatically(value, options = {}) {
     canonical: value.canonical,
     derivation: value.derivation,
   };
+  if (isStructuralPower(value)) return {
+    ...formatStructuralPower(value),
+    engine: "Exact structure · powers",
+    representation: "nested power form",
+    exactness: "symbolic exact",
+    precision: "not expanded",
+    canonical: value.canonical,
+    derivation: "Preserved before numeric expansion would exceed the exact engine boundary.",
+    facts: structuralPowerFacts(value, options.base ?? 10),
+    provenance: structuralPowerProvenance(value, options.base ?? 10),
+  };
   if (value.kind === "hierarchy") return { ...formatAutomatically(value, options), engine: "Wainer hierarchy", representation: `F${value.level} structural form`, exactness: "symbolic exact", precision: "not expanded" };
   if (value.kind === "decimal.js") return decimalEngine.inspect(value, options);
   if (value.kind === "break-eternity") return { ...breakEternityEngine.inspect(value, options), engine: value.engineLabel ?? "break_eternity.js" };
@@ -1021,6 +1044,7 @@ export function digitCountAutomatically(value, base = 10) {
       const digits = (integer < 0n ? -integer : integer).toString(base).length;
       return { value: { kind: "exact-integer", integer: BigInt(digits), exactInteger: String(digits), full: String(digits) }, certainty: "exact" };
     }
+    if (isStructuralPower(value)) return null;
     if (value.kind === "decimal.js") return decimalEngine.digitCount(value, base);
     if (value.kind === "break-eternity") return breakEternityEngine.digitCount(value, base);
   } catch { /* An unsupported alternate engine simply omits this optional inspection detail. */ }
@@ -1115,6 +1139,7 @@ export function evaluateWithAnalysis(expression, references = new Map(), options
 export function serializeValue(value) {
   if (!value) return null;
   if (isExactValue(value)) return serializeExactValue(value);
+  if (isStructuralPower(value)) return serializeStructuralValue(value);
   if (value.kind === "decimal.js" || value.kind === "break-eternity") {
     return { ...value, decimal: value.decimal?.toString?.() ?? value.full };
   }
@@ -1124,6 +1149,7 @@ export function serializeValue(value) {
 export function deserializeValue(value) {
   if (!value) return null;
   if (value.kind === "exact-integer" || value.kind === "exact-rational") return hydrateExactValue(deserializeExactValue(value));
+  if (isStructuralPower(value)) return deserializeStructuralValue(value);
   if (value.kind === "decimal.js") return { ...value, decimal: new Decimal(value.decimal) };
   if (value.kind === "break-eternity") return { ...value, decimal: new BreakDecimal(value.decimal) };
   return value;

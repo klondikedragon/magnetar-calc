@@ -56,6 +56,21 @@ meaning, input domains, exact reductions, serialization, rendering, and error
 or estimate behavior. It ends with small-case oracle tests, property tests, and
 round-trip serialization tests.
 
+### Delivered: structural powers, initial slice
+
+Positive exact-integer power expressions now preserve a `structural-power`
+value when the exact evaluator declines to expand them. The initial grammar is
+deliberately narrow: exact positive integer bases greater than one and exact or
+structural positive exponents. It supports worker/history/export serialization,
+canonical copy, matching-base digit counts, base-digit formulas, a limited
+two-level repeated-log decimal magnitude estimate, and inspector provenance.
+
+This slice does **not** yet make structural values general operands of addition,
+multiplication, roots, logarithms, or arbitrary functions; it also does not
+claim leading digits or arbitrary decimal suffixes. Those need their own rules,
+precision conditions, and oracle plans. See
+[`docs/engineering/structural-powers.md`](engineering/structural-powers.md).
+
 ## Calculation provenance
 
 The inspector will gain a dedicated **Provenance** view. It is an expandable

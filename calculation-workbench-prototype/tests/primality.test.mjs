@@ -46,9 +46,10 @@ test("decimal notation keeps an eligible large Decimal value expanded", () => {
   assert.equal(formatted.significand.length, 1000);
 });
 
-test("decimal notation falls back to scientific form beyond the display envelope", () => {
+test("oversized exact powers preserve their structural form beyond the display envelope", () => {
   const formatted = formatAutomatically(evaluateAutomatically("10^10000"), { notation: "decimal", precision: 10000 });
-  assert.equal(formatted.exponent, "10000");
+  assert.equal(formatted.structuralPower, true);
+  assert.equal(formatted.text, "10^10000");
 });
 
 test("clipboard formatting honors Decimal notation at full engine precision", () => {
@@ -113,11 +114,11 @@ test("accepts relative history references alongside stable history IDs", () => {
   assert.throws(() => evaluateAutomatically("@history(-3)", references), /unknown history reference/);
 });
 
-test("formats ordinary digit counts as whole numbers and immense counts compactly", () => {
+test("formats ordinary digit counts and exposes structural digit formulas", () => {
   const ordinary = digitCountAutomatically(evaluateAutomatically("10^3102"), 10);
   assert.equal(formatDigitCountForInspector(ordinary, { groupDigits: true }), "3,103");
-  const large = digitCountAutomatically(evaluateAutomatically("10^10000"), 10);
-  assert.equal(formatDigitCountForInspector(large), "1 × 10^4");
+  const structural = inspectAutomatically(evaluateAutomatically("10^10000"), { base: 10 });
+  assert.equal(structural.facts.find((fact) => fact.id === "matching-base-digits").value, "10000 + 1");
 });
 
 test("evaluates the dynamic sequence position and extrema functions", () => {
