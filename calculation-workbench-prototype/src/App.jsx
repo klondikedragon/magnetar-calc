@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, Check, Copy, ExternalLink, FolderOpen, Info, RotateCcw, Save } from "lucide-react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { BookOpen, ChartNoAxesCombined, Check, Copy, ExternalLink, FolderOpen, Info, RotateCcw, Save } from "lucide-react";
 import { TableVirtuoso, Virtuoso } from "react-virtuoso";
 import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, exportPrecision, formatAutomatically, formatDigitCountForInspector, formatForHighPrecisionExport, inspectAutomatically, serializeValue } from "./engine";
 import { createNotebook, validateNotebook } from "./notebook";
 import { exampleCategories, filterExampleCatalog, sortExampleCatalog } from "./exampleCatalog";
 import { filterFunctionCatalog, functionCategories, functionInsertion } from "./functionCatalog";
+
+const HistoryChartDialog = lazy(() => import("./HistoryChartDialog"));
 
 const initialHistory = [
   { id: 3, expression: "√(2) + π / 7", value: { kind: "number", number: 1.862012077376797, full: "1.862012077376796985004668721836731291106586140266324758279159345760390983" } },
@@ -100,6 +102,7 @@ export function App() {
   const [exportAnswers, setExportAnswers] = useState("none");
   const [exportView, setExportView] = useState(false);
   const [examplesOpen, setExamplesOpen] = useState(false);
+  const [historyChartOpen, setHistoryChartOpen] = useState(false);
   const [exampleQuery, setExampleQuery] = useState("");
   const [exampleCategory, setExampleCategory] = useState("All");
   const [exampleView, setExampleView] = useState(() => storedWorkspace?.view?.exampleView ?? "grid");
@@ -731,6 +734,11 @@ export function App() {
     });
   }
 
+  function inspectChartHistory(item) {
+    setHistoryChartOpen(false);
+    requestAnimationFrame(() => openHistoryInfo(item));
+  }
+
   function openMemory() { priorFocusRef.current = document.activeElement; setMemoryOpen(true); }
   function closeMemory() { setMemoryOpen(false); requestAnimationFrame(() => (priorFocusRef.current instanceof HTMLElement ? priorFocusRef.current : expressionRef.current)?.focus()); }
   function openFullInfo(subject) { fullInfoPriorFocusRef.current = document.activeElement; setProvenanceOpen(false); setFullInfoSubject(subject); setFullInfoOpen(true); }
@@ -817,6 +825,7 @@ export function App() {
             <div><p className="eyebrow">HISTORY</p><h2>{history.length} calculations</h2></div>
             <div className="history-toolbar">
               <button className="quiet examples-button" aria-haspopup="dialog" title="Browse verified example notebooks" onClick={openExamplesBrowser}>Examples</button>
+              <button className="history-icon" aria-label="Chart History" title="Chart History" onClick={() => setHistoryChartOpen(true)}><ChartNoAxesCombined aria-hidden="true" /></button>
               <button className="history-icon" aria-label="Download History notebook" title="Download History notebook" onClick={openExportDialog}><Save aria-hidden="true" /></button><button className="history-icon" aria-label="Import History notebook" title="Import History notebook" onClick={() => importInputRef.current?.click()}><FolderOpen aria-hidden="true" /></button><button className="history-icon reset-history" aria-label="Reset History" title="Reset History" onClick={() => { setHistory([]); setNextId(1); }}><RotateCcw aria-hidden="true" /></button><input ref={importInputRef} className="file-input" type="file" accept="application/json,.json" onChange={readNotebookFile} />
             </div>
           </div>
@@ -847,6 +856,7 @@ export function App() {
     {exportDialogOpen && <div className="notebook-overlay" role="dialog" aria-modal="true" aria-label="Download notebook"><div className="notebook-card"><div className="panel-heading"><div><p className="eyebrow">DOWNLOAD NOTEBOOK</p><h2>Choose what to include</h2></div><button className="quiet" onClick={() => setExportDialogOpen(false)}>Close</button></div><fieldset className="export-options"><legend>History contents</legend><label><input type="radio" name="answers" checked={exportAnswers === "none"} onChange={() => setExportAnswers("none")} /> Expressions only</label><label><input type="radio" name="answers" checked={exportAnswers === "current"} onChange={() => setExportAnswers("current")} /> With answers</label><label><input type="radio" name="answers" checked={exportAnswers === "10m"} onChange={() => setExportAnswers("10m")} /> With answers (10M digits)</label></fieldset><label className="export-view-option"><input type="checkbox" checked={exportView} onChange={(event) => setExportView(event.target.checked)} /> Include current view settings</label><p className="notebook-note">Imported notebooks always recalculate expressions; saved answers are archival metadata.</p><div className="notebook-actions"><button className="quiet" onClick={() => setExportDialogOpen(false)}>Cancel</button><button className="download-button" onClick={exportNotebook}>Download JSON</button></div></div></div>}
     {pendingImport && <div className="notebook-overlay" role="dialog" aria-modal="true" aria-label="Confirm notebook import"><div className="notebook-card"><p className="eyebrow">IMPORT NOTEBOOK</p><h2>Replace the current workbench?</h2><p className="notebook-note"><b>{pendingImport.label}</b> has {pendingImport.notebook.history.length} History entries. Every expression will be recalculated; saved answers are never trusted.</p>{pendingImport.notebook.view && <p className="notebook-note">Its saved view settings will also be applied.</p>}<div className="notebook-actions"><button className="quiet" onClick={() => setPendingImport(null)}>Cancel</button><button className="download-button" onClick={confirmNotebookImport}>Import and recalculate</button></div></div></div>}
     {memoryOpen && memory && <div className="memory-overlay" role="dialog" aria-modal="true" aria-label="Memory details"><div className="memory-card" ref={memoryDialogRef}><div className="panel-heading"><div><p className="eyebrow">MEMORY</p><h2>Accumulated expression</h2></div><button className="quiet" ref={memoryCloseRef} onClick={closeMemory}>Close</button></div><p className="memory-expression selectable-text">{memory.expression}</p><button className="memory-answer selectable-output copyable-value" aria-label={resultLabel(memoryDisplay, "Copy memory result")} title={`${memoryTooltip} · click to copy`} onClick={() => copyResult(memory.value, "memory-result")}>{renderResultContent(memoryDisplay)}<CopyFeedback target="memory-result" /></button><InspectorSummary data={memoryInspection} subject={{ value: memory.value, data: memoryInspection, digits: memoryDigitCount, sourceExpression: memory.expression }} /><div className="memory-actions"><button className="use-button" onClick={recallMemory}>Recall into expression</button><button className="quiet" onClick={() => { setMemory(null); closeMemory(); }}>Clear memory</button></div></div></div>}
+    {historyChartOpen && <Suspense fallback={<div className="history-chart-overlay" role="status"><section className="history-chart-card history-chart-loading">Loading History chart…</section></div>}><HistoryChartDialog history={history} base={base} precision={precision} notation={notation} groupDigits={groupDigits} onClose={() => setHistoryChartOpen(false)} onInspect={inspectChartHistory} /></Suspense>}
     {fullInfoOpen && fullInfoSubject && <div className="full-info-overlay" role="dialog" aria-modal="true" aria-labelledby="full-info-title" onMouseDown={(event) => { if (event.target === event.currentTarget) closeFullInfo(); }}><section className="full-info-card" ref={fullInfoDialogRef}><div className="full-info-header"><div><p className="eyebrow">VALUE INFORMATION</p><h2 id="full-info-title">Full calculation details</h2></div><button className="quiet" ref={fullInfoCloseRef} onClick={closeFullInfo}>Close</button></div><div className="full-info-scroll"><FullInfoDetails {...fullInfoSubject} /></div></section></div>}
     {examplesOpen && <div className="example-browser-overlay" role="dialog" aria-modal="true" aria-labelledby="example-browser-title" onMouseDown={(event) => { if (event.target === event.currentTarget) closeExamplesBrowser(); }}>
       <section className={`example-browser-card ${exampleView}`}>
@@ -866,8 +876,8 @@ export function App() {
             <th><button className="example-sort" onClick={() => toggleExampleSort("category")}>Category{exampleSort === "category" && (exampleSortDirection === "asc" ? " ↑" : " ↓")}</button></th>
             <th><button className="example-sort" onClick={() => toggleExampleSort("name")}>Example{exampleSort === "name" && (exampleSortDirection === "asc" ? " ↑" : " ↓")}</button></th>
             <th><button className="example-sort" onClick={() => toggleExampleSort("description")}>Description{exampleSort === "description" && (exampleSortDirection === "asc" ? " ↑" : " ↓")}</button></th>
-            <th>References</th><th>Actions</th>
-          </tr>} itemContent={(_, entry) => <><td>{entry.category}</td><td><b>{entry.name}</b></td><td>{entry.description}</td><td>{entry.references.map((reference) => <a key={reference.url} href={reference.url} target="_blank" rel="noreferrer" title={reference.label}>Open <ExternalLink aria-hidden="true" /></a>)}</td><td><span className="example-actions"><button className="example-info-button" onClick={() => setExampleDetails(entry)} aria-label={`Read about ${entry.name}`} title="More information"><Info aria-hidden="true" /> Info</button><button className="example-load-button" onClick={() => queueNotebookImport(entry.notebook, entry.name)}>Load</button></span></td></>} /> : <Virtuoso style={{ height: "100%" }} data={filteredExamples} computeItemKey={(_, entry) => entry.id} increaseViewportBy={240} itemContent={(_, entry) => <article className="example-list-item"><div className="example-list-heading"><span className="function-category">{entry.category}</span><b>{entry.name}</b></div>{exampleView === "detailed" && <><p>{entry.description}</p><div className="example-reference-list">{entry.references.map((reference) => <a key={reference.url} href={reference.url} target="_blank" rel="noreferrer">{reference.label} <ExternalLink aria-hidden="true" /></a>)}</div></>}<div className="example-actions"><button className="example-info-button" onClick={() => setExampleDetails(entry)}><Info aria-hidden="true" /> More info</button><button className="example-load-button" onClick={() => queueNotebookImport(entry.notebook, entry.name)}>Load</button></div></article>} />}
+            <th>Actions</th>
+          </tr>} itemContent={(_, entry) => <><td>{entry.category}</td><td><b>{entry.name}</b></td><td>{entry.description}</td><td><span className="example-actions"><button className="example-info-button" onClick={() => setExampleDetails(entry)} aria-label={`Read about ${entry.name}`} title="More information"><Info aria-hidden="true" /> Info</button><button className="example-load-button" onClick={() => queueNotebookImport(entry.notebook, entry.name)}>Load</button></span></td></>} /> : <Virtuoso style={{ height: "100%" }} data={filteredExamples} computeItemKey={(_, entry) => entry.id} increaseViewportBy={240} itemContent={(_, entry) => <article className="example-list-item"><div className="example-list-heading"><span className="function-category">{entry.category}</span><b>{entry.name}</b></div>{exampleView === "detailed" && <><p>{entry.description}</p><div className="example-reference-list">{entry.references.map((reference) => <a key={reference.url} href={reference.url} target="_blank" rel="noreferrer">{reference.label} <ExternalLink aria-hidden="true" /></a>)}</div></>}<div className="example-actions"><button className="example-info-button" onClick={() => setExampleDetails(entry)}><Info aria-hidden="true" /> More info</button><button className="example-load-button" onClick={() => queueNotebookImport(entry.notebook, entry.name)}>Load</button></div></article>} />}
         </div>
         <p className="function-browser-note">Only source-backed, tested notebooks appear here. Search terms are combined; quote a phrase to keep its words together. Draft ideas remain out of the library until verified.</p>
       </section>
