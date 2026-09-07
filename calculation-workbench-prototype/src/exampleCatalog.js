@@ -22,10 +22,36 @@ const powerTowerNotebook = {
 const yellowstoneNotebook = {
   schemaVersion: 1,
   activeExpression: { expression: "yellowstone(@n)" },
-  // Each saved step uses its ordinal History position. After import, pressing
-  // Enter continues the permutation without editing the active expression.
-  history: Array.from({ length: 12 }, (_, index) => ({ id: 12 - index, expression: "yellowstone(@n)" })),
-  nextHistoryId: 13,
+  history: [{ repeat: { expression: "yellowstone(@n)", count: 1000, startId: 1 } }],
+  nextHistoryId: 1001,
+};
+
+const lucasNotebook = {
+  schemaVersion: 1,
+  activeExpression: { expression: "@history(-1) + @history(-2)" },
+  history: [{ id: 2, expression: "1" }, { id: 1, expression: "2" }],
+  nextHistoryId: 3,
+};
+
+const pellNotebook = {
+  schemaVersion: 1,
+  activeExpression: { expression: "2 @history(-1) + @history(-2)" },
+  history: [{ id: 2, expression: "1" }, { id: 1, expression: "0" }],
+  nextHistoryId: 3,
+};
+
+const tribonacciNotebook = {
+  schemaVersion: 1,
+  activeExpression: { expression: "@history(-1) + @history(-2) + @history(-3)" },
+  history: [{ id: 3, expression: "1" }, { id: 2, expression: "0" }, { id: 1, expression: "0" }],
+  nextHistoryId: 4,
+};
+
+const padovanNotebook = {
+  schemaVersion: 1,
+  activeExpression: { expression: "@history(-2) + @history(-3)" },
+  history: [{ id: 3, expression: "1" }, { id: 2, expression: "1" }, { id: 1, expression: "1" }],
+  nextHistoryId: 4,
 };
 
 /**
@@ -39,16 +65,16 @@ export const exampleCatalog = [
     published: true,
     category: "History & sequences",
     name: "Fibonacci continuation",
-    description: "Continue the sequence with relative History references, then press Enter for each next term.",
+    description: "The archetypal two-term recurrence, whose neighboring-term ratios converge to the golden ratio.",
     keywords: ["fibonacci", "recurrence", "relative history", "previous answer", "sequence", "golden ratio"],
     notebook: fibonacciNotebook,
     verification: { fixture: "examples.fibonacci-continuation", status: "verified" },
     details: {
       overview: [
-        "The first two History entries seed the standard Fibonacci recurrence. The active expression remains unchanged as History grows.",
-        "Relative references are intentionally position-based: @history(-1) is the newest item, and @history(-2) is the one before it.",
+        "Beginning 1, 1, each term is the sum of its two predecessors. Its growth is governed by the golden ratio, φ = (1 + √5) / 2.",
+        "Fibonacci numbers occur throughout combinatorics, including counts of binary strings with no adjacent ones and tilings by squares and dominoes.",
       ],
-      steps: ["Load the example.", "Press Enter to create the next term.", "Continue pressing Enter; the active expression adapts to the two latest entries."],
+      steps: ["Observe the initial terms.", "Extend the recurrence.", "Compare successive-term ratios with φ."],
     },
     references: [
       { label: "OEIS A000045: Fibonacci numbers", url: "https://oeis.org/A000045" },
@@ -60,16 +86,16 @@ export const exampleCatalog = [
     published: true,
     category: "Magnitude & structure",
     name: "A power whose digit count is tractable",
-    description: "Build 25^(25^3), then use it as an exponent; the value stays structural while its decimal digit count remains informative.",
+    description: "A finite power construction whose decimal expansion is infeasible but whose scale remains mathematically accessible.",
     keywords: ["power tower", "exponentiation", "scientific notation", "digit count", "structural value", "large number"],
     notebook: powerTowerNotebook,
     verification: { fixture: "examples.power-tower-25", status: "verified" },
     details: {
       overview: [
-        "The History seed evaluates exactly. The active expression then exceeds the exact expansion boundary, so the calculator preserves its power structure rather than inventing decimal digits.",
-        "Its magnitude dossier derives a base-10 digit formula and presents a finite-precision estimate: approximately 9.0807984 × 10^21842 decimal digits.",
+        "Exponentiation makes an ordinary base acquire an extraordinary scale remarkably quickly: the exponent itself is already a large exact power.",
+        "The number has approximately 9.0807984 × 10^21842 decimal digits. Its power form makes that estimate derivable without pretending to list the digits.",
       ],
-      steps: ["Load the example.", "Inspect the active result.", "Open Full info to compare the exact structural form, digit formula, estimate, and interval."],
+      steps: ["Compare the nested exponent with the outer power.", "Inspect the digit-count formula.", "Contrast an exact construction with an estimated decimal scale."],
     },
     references: [
       { label: "NIST DLMF §4.8: Powers and logarithms", url: "https://dlmf.nist.gov/4.8" },
@@ -81,22 +107,94 @@ export const exampleCatalog = [
     published: true,
     category: "History & sequences",
     name: "The Yellowstone permutation",
-    description: "Build a greedy permutation from local gcd rules, then continue it by pressing Enter with the same expression.",
+    description: "A greedy permutation governed by a local tension between shared factors and coprimality.",
     keywords: ["yellowstone", "numberphile", "permutation", "gcd", "relatively prime", "a098550", "sequence position", "history"],
     notebook: yellowstoneNotebook,
     verification: { fixture: "examples.yellowstone-permutation", status: "verified" },
     details: {
       overview: [
         "The Yellowstone permutation starts 1, 2, 3. Each later term is the smallest unused positive integer sharing a nontrivial common factor with the term two positions before it while remaining coprime to the immediately preceding term.",
-        "Every History entry uses yellowstone(@n), so the expression stays fixed while @n advances with the next History position.",
+        "Despite its local rule, the permutation develops striking global patterns, including alternating behavior around primes and even numbers.",
       ],
-      steps: ["Load the example.", "Inspect early values and their History positions.", "Press Enter to calculate the next exact finite-range term."],
+      steps: ["Study the initial terms and their factorizations.", "Locate the first irregular jump.", "Plot a longer prefix to see its emergent structure."],
     },
     references: [
       { label: "OEIS A098550: Yellowstone permutation", url: "https://oeis.org/A098550" },
       { label: "Sloane et al.: The Yellowstone Permutation", url: "https://arxiv.org/abs/1501.01669" },
       { label: "Numberphile: The Yellowstone Permutation", url: "https://www.youtube.com/watch?v=DUaqiM1bGX4" },
     ],
+  },
+  {
+    id: "sequences.lucas-companion",
+    published: true,
+    category: "History & sequences",
+    name: "Lucas numbers: Fibonacci’s companion",
+    description: "The same recurrence as Fibonacci, with different seeds and the same golden-ratio growth.",
+    keywords: ["lucas", "fibonacci", "golden ratio", "recurrence", "a000032"],
+    notebook: lucasNotebook,
+    verification: { fixture: "examples.lucas-companion", status: "verified" },
+    details: {
+      overview: [
+        "Lucas numbers begin 2, 1 and obey the Fibonacci recurrence. Changing only the initial values produces 2, 1, 3, 4, 7, 11, ….",
+        "They are tightly linked to Fibonacci numbers—Lₙ = Fₙ₋₁ + Fₙ₊₁—and their ratios approach the same golden ratio.",
+      ],
+      steps: ["Compare the seeds with Fibonacci.", "Extend the recurrence.", "Verify the shared long-run growth rate."],
+    },
+    references: [{ label: "OEIS A000032: Lucas numbers", url: "https://oeis.org/A000032" }],
+  },
+  {
+    id: "sequences.pell-silver-ratio",
+    published: true,
+    category: "History & sequences",
+    name: "Pell numbers and the silver ratio",
+    description: "A recurrence whose successive-term ratios converge to the silver ratio 1 + √2.",
+    keywords: ["pell", "silver ratio", "metallic means", "recurrence", "a000129"],
+    notebook: pellNotebook,
+    verification: { fixture: "examples.pell-silver-ratio", status: "verified" },
+    details: {
+      overview: [
+        "Starting with 0, 1, the Pell numbers satisfy Pₙ = 2Pₙ₋₁ + Pₙ₋₂. The sequence begins 0, 1, 2, 5, 12, 29, ….",
+        "Their neighboring-term ratios approach 1 + √2, the silver ratio—the next metallic mean after the golden ratio.",
+      ],
+      steps: ["Compare the coefficient 2 with Fibonacci’s coefficient 1.", "Extend the recurrence.", "Observe the approach to the silver ratio."],
+    },
+    references: [{ label: "OEIS A000129: Pell numbers", url: "https://oeis.org/A000129" }],
+  },
+  {
+    id: "sequences.tribonacci",
+    published: true,
+    category: "History & sequences",
+    name: "Tribonacci: a three-term recurrence",
+    description: "A Fibonacci generalization in which each term sums the preceding three.",
+    keywords: ["tribonacci", "n-bonacci", "recurrence", "a000073"],
+    notebook: tribonacciNotebook,
+    verification: { fixture: "examples.tribonacci", status: "verified" },
+    details: {
+      overview: [
+        "The standard Tribonacci sequence begins 0, 0, 1 and adds the preceding three terms: 0, 0, 1, 1, 2, 4, 7, 13, ….",
+        "Its growth is governed by the Tribonacci constant, the real root of x³ = x² + x + 1, illustrating how a recurrence’s order changes its limiting scale.",
+      ],
+      steps: ["Compare three-term memory with Fibonacci’s two terms.", "Extend the sequence.", "Compare its rate of growth with Fibonacci."],
+    },
+    references: [{ label: "OEIS A000073: Tribonacci numbers", url: "https://oeis.org/A000073" }],
+  },
+  {
+    id: "sequences.padovan-plastic",
+    published: true,
+    category: "History & sequences",
+    name: "Padovan numbers and the plastic constant",
+    description: "A delayed recurrence whose growth is controlled by the plastic constant.",
+    keywords: ["padovan", "plastic constant", "recurrence", "a000931"],
+    notebook: padovanNotebook,
+    verification: { fixture: "examples.padovan-plastic", status: "verified" },
+    details: {
+      overview: [
+        "With seeds 1, 1, 1, this Padovan variant obeys Pₙ = Pₙ₋₂ + Pₙ₋₃, producing 1, 1, 1, 2, 2, 3, 4, 5, ….",
+        "The recurrence skips its immediate predecessor. Its long-run ratio is governed by the plastic constant, the real solution of x³ = x + 1.",
+      ],
+      steps: ["Compare the delayed dependency with Tribonacci.", "Extend the recurrence.", "Relate the observed growth to x³ = x + 1."],
+    },
+    references: [{ label: "OEIS A000931: Padovan sequence", url: "https://oeis.org/A000931" }],
   },
   {
     id: "draft.golden-ratio-companions",

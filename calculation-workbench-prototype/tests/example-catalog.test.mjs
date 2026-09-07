@@ -2,24 +2,59 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { evaluateAutomatically, inspectAutomatically } from "../src/engine.js";
 import { exampleCatalog, filterExampleCatalog, parseExampleSearch, publishedExamples, validatePublishedExamples } from "../src/exampleCatalog.js";
+import { validateNotebook } from "../src/notebook.js";
 
 test("published examples have stable identities, references, valid notebooks, and fixtures", () => {
   assert.equal(validatePublishedExamples(), true);
   assert.equal(new Set(exampleCatalog.map((entry) => entry.id)).size, exampleCatalog.length);
-  assert.deepEqual(publishedExamples.map((entry) => entry.id), ["history.fibonacci-continuation", "magnitude.power-tower-25", "sequences.yellowstone-permutation"]);
+  assert.deepEqual(publishedExamples.map((entry) => entry.id), ["history.fibonacci-continuation", "magnitude.power-tower-25", "sequences.yellowstone-permutation", "sequences.lucas-companion", "sequences.pell-silver-ratio", "sequences.tribonacci", "sequences.padovan-plastic"]);
 });
 
 test("Yellowstone fixture uses the next History position and has the OEIS prefix", () => {
   const example = exampleCatalog.find((entry) => entry.id === "sequences.yellowstone-permutation");
   assert.equal(example.notebook.activeExpression.expression, "yellowstone(@n)");
   const expected = [1, 2, 3, 4, 9, 8, 15, 14, 5, 6, 25, 12];
-  const actual = [...example.notebook.history].reverse().map((entry, index) => evaluateAutomatically(entry.expression, new Map([["@n", String(index + 1)]])).decimal.toNumber());
+  const notebook = validateNotebook(example.notebook);
+  const actual = [...notebook.history].reverse().slice(0, 12).map((entry, index) => evaluateAutomatically(entry.expression, new Map([["@n", String(index + 1)]])).decimal.toNumber());
   assert.deepEqual(actual, expected);
+});
+
+test("recurrence examples declare their source-backed initial terms and reusable rules", () => {
+  const expected = new Map([
+    ["sequences.lucas-companion", ["2", "1", "@history(-1) + @history(-2)"]],
+    ["sequences.pell-silver-ratio", ["0", "1", "2 @history(-1) + @history(-2)"]],
+    ["sequences.tribonacci", ["0", "0", "1", "@history(-1) + @history(-2) + @history(-3)"]],
+    ["sequences.padovan-plastic", ["1", "1", "1", "@history(-2) + @history(-3)"]],
+  ]);
+  for (const [id, values] of expected) {
+    const example = exampleCatalog.find((entry) => entry.id === id);
+    const notebook = validateNotebook(example.notebook);
+    assert.deepEqual([...notebook.history].reverse().map((entry) => entry.expression), values.slice(0, -1));
+    assert.equal(notebook.expression, values.at(-1));
+  }
+});
+
+test("recurrence examples produce their independently documented prefixes", () => {
+  const cases = [
+    ["sequences.lucas-companion", [2, 1, 3, 4, 7, 11]],
+    ["sequences.pell-silver-ratio", [0, 1, 2, 5, 12, 29]],
+    ["sequences.tribonacci", [0, 0, 1, 1, 2, 4]],
+    ["sequences.padovan-plastic", [1, 1, 1, 2, 2, 3]],
+  ];
+  for (const [id, expected] of cases) {
+    const notebook = validateNotebook(exampleCatalog.find((entry) => entry.id === id).notebook);
+    const values = [...notebook.history].reverse().map((entry) => evaluateAutomatically(entry.expression).decimal.toNumber());
+    while (values.length < expected.length) {
+      const references = new Map(values.map((value, index) => [`@history(-${values.length - index})`, String(value)]));
+      values.push(evaluateAutomatically(notebook.expression, references).decimal.toNumber());
+    }
+    assert.deepEqual(values, expected);
+  }
 });
 
 test("example search includes keywords and reference URLs but excludes drafts", () => {
   assert.deepEqual(parseExampleSearch('fibonacci "relative history"'), ["fibonacci", "relative history"]);
-  assert.deepEqual(filterExampleCatalog("oeis").map((entry) => entry.id), ["history.fibonacci-continuation", "sequences.yellowstone-permutation"]);
+  assert.deepEqual(filterExampleCatalog("oeis").map((entry) => entry.id), ["history.fibonacci-continuation", "sequences.yellowstone-permutation", "sequences.lucas-companion", "sequences.pell-silver-ratio", "sequences.tribonacci", "sequences.padovan-plastic"]);
   assert.equal(filterExampleCatalog("basement").length, 0);
 });
 
