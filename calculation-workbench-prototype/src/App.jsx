@@ -5,6 +5,7 @@ import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, export
 import { createNotebook, validateNotebook } from "./notebook";
 import { exampleCategories, filterExampleCatalog, sortExampleCatalog } from "./exampleCatalog";
 import { filterFunctionCatalog, functionCategories, functionInsertion } from "./functionCatalog";
+import { appendHistoryEntry, invalidateAfterHistoryDeletion, rebuildHistoryLedger, workerReferencesForEntry } from "./historyLedger";
 
 const HistoryChartDialog = lazy(() => import("./HistoryChartDialog"));
 
@@ -77,7 +78,8 @@ function readStoredWorkspace() {
 }
 
 function historyReferences(items) {
-  return [...items.flatMap((item, index) => {
+  const completed = items.filter((item) => item.state === "completed" || item.state === undefined);
+  return [...completed.flatMap((item, index) => {
     const value = serializeValue(item.value);
     return [[`@history(${item.id})`, value], [`@history(-${index + 1})`, value]];
   }), ["@n", String(items.length + 1)]];
@@ -91,12 +93,11 @@ export function App() {
   const [notation, setNotation] = useState(() => storedWorkspace?.view?.notation ?? storedWorkspace?.notation ?? "auto");
   const [groupDigits, setGroupDigits] = useState(() => storedWorkspace?.view?.groupDigits ?? true);
   const [activeMode, setActiveMode] = useState(() => storedWorkspace?.view?.activeMode ?? storedWorkspace?.activeMode ?? "Calculator");
-  const [history, setHistory] = useState(() => storedWorkspace?.history?.map((item) => ({ ...item, value: deserializeValue(item.value) })) ?? initialHistory);
+  const [history, setHistory] = useState(() => rebuildHistoryLedger(storedWorkspace?.history?.map((item) => ({ ...item, value: deserializeValue(item.value), state: "completed" })) ?? initialHistory.map((item) => ({ ...item, state: "completed" }))));
   const [nextId, setNextId] = useState(() => storedWorkspace?.nextId ?? 4);
   const [memory, setMemory] = useState(() => storedWorkspace?.memory ? { ...storedWorkspace.memory, value: deserializeValue(storedWorkspace.memory.value) } : null);
   const [previewValue, setPreviewValue] = useState(() => deserializeValue(storedWorkspace?.previewValue) ?? initialHistory[0].value);
   const [calculation, setCalculation] = useState({ status: "idle", startedAt: 0 });
-  const [historyQueue, setHistoryQueue] = useState([]);
   const [showCalculating, setShowCalculating] = useState(false);
   const [toast, setToast] = useState("");
   const [copiedTarget, setCopiedTarget] = useState(null);
@@ -138,9 +139,7 @@ export function App() {
   const workerBusyRef = useRef(false);
   const historyQueueWorkerRef = useRef(null);
   const historyQueueBusyRef = useRef(false);
-  const historyQueueRef = useRef([]);
   const historyQueueJobRef = useRef(0);
-  const historyQueueEntryRef = useRef(0);
   const historyRef = useRef(history);
   const nextIdRef = useRef(nextId);
   const exportWorkerRef = useRef(null);
@@ -181,7 +180,7 @@ export function App() {
         expression, nextId,
         view: { base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection },
         previewValue: serializeValue(previewValue),
-        history: history.map((item) => ({ ...item, value: serializeValue(item.value) })),
+        history: history.filter((item) => item.state === "completed").map((item) => ({ id: item.id, expression: item.expression, value: serializeValue(item.value) })),
         memory: memory ? { ...memory, value: serializeValue(memory.value) } : null,
       }));
     } catch { /* Storage is optional; the calculator remains usable without it. */ }
@@ -194,14 +193,16 @@ export function App() {
   const digitCount = digitCountAutomatically(previewValue, base);
   const filteredFunctions = useMemo(() => filterFunctionCatalog(functionQuery, functionCategory), [functionQuery, functionCategory]);
   const filteredExamples = useMemo(() => sortExampleCatalog(filterExampleCatalog(exampleQuery, exampleCategory), exampleSort, exampleSortDirection), [exampleQuery, exampleCategory, exampleSort, exampleSortDirection]);
+  const completedHistory = useMemo(() => history.filter((item) => item.state === "completed"), [history]);
+  const pendingHistory = useMemo(() => history.filter((item) => item.state !== "completed"), [history]);
 
-  const referenceValues = useMemo(() => new Map([...history.flatMap((item, index) => {
+  const referenceValues = useMemo(() => new Map([...completedHistory.flatMap((item, index) => {
     return [[`@history(${item.id})`, item.value], [`@history(-${index + 1})`, item.value]];
-  }), ["@n", String(history.length + 1)]]), [history]);
+  }), ["@n", String(history.length + 1)]]), [completedHistory, history.length]);
   // Primality annotations are presentation metadata, not calculation inputs.
   // Keep the calculation worker stable when an asynchronous badge arrives.
-  const historyReferenceKey = history.map((item) => `${item.id}:${item.value.kind}:${item.value.decimal?.toString?.() ?? item.value.integer?.toString?.() ?? item.value.numerator?.toString?.() ?? item.value.number ?? item.value.full}:${item.value.denominator?.toString?.() ?? ""}:${item.value.exactInteger ?? ""}`).join("|");
-  const workerReferences = useMemo(() => historyReferences(history), [historyReferenceKey]);
+  const historyReferenceKey = completedHistory.map((item) => `${item.id}:${item.value.kind}:${item.value.decimal?.toString?.() ?? item.value.integer?.toString?.() ?? item.value.numerator?.toString?.() ?? item.value.number ?? item.value.full}:${item.value.denominator?.toString?.() ?? ""}:${item.value.exactInteger ?? ""}`).join("|");
+  const workerReferences = useMemo(() => historyReferences(completedHistory), [historyReferenceKey]);
 
   function updatePreview(nextExpression) {
     setExpression(nextExpression);
@@ -258,19 +259,9 @@ export function App() {
     return () => clearTimeout(timer);
   }, [calculation.status]);
 
-  function updateHistoryQueue(nextQueue) {
-    historyQueueRef.current = nextQueue;
-    setHistoryQueue(nextQueue);
-  }
-
   function finishHistoryQueueItem(entryId, result) {
-    const nextQueue = historyQueueRef.current.filter((item) => item.id !== entryId);
-    updateHistoryQueue(nextQueue);
     if (result?.value) {
-      const entry = { id: nextIdRef.current, expression: result.expression, value: result.value };
-      nextIdRef.current += 1;
-      setNextId(nextIdRef.current);
-      const nextHistory = [entry, ...historyRef.current];
+      const nextHistory = historyRef.current.map((entry) => entry.id === entryId ? { ...entry, state: "completed", value: result.value, error: null } : entry);
       historyRef.current = nextHistory;
       setHistory(nextHistory);
       setToast("Saved to History");
@@ -280,10 +271,21 @@ export function App() {
 
   function processHistoryQueue() {
     if (historyQueueBusyRef.current) return;
-    const nextItem = historyQueueRef.current.find((item) => item.status === "queued");
+    const nextItem = [...historyRef.current].reverse().find((item) => item.state === "queued" || item.state === "dirty");
     if (!nextItem) return;
+    const payload = workerReferencesForEntry(historyRef.current, nextItem);
+    if (payload.waiting) return;
+    if (payload.blocked) {
+      const nextHistory = historyRef.current.map((item) => item.id === nextItem.id ? { ...item, state: "blocked", value: null, error: payload.blocked } : item);
+      historyRef.current = nextHistory;
+      setHistory(nextHistory);
+      queueMicrotask(processHistoryQueue);
+      return;
+    }
     historyQueueBusyRef.current = true;
-    updateHistoryQueue(historyQueueRef.current.map((item) => item.id === nextItem.id ? { ...item, status: "computing" } : item));
+    const computingHistory = historyRef.current.map((item) => item.id === nextItem.id ? { ...item, state: "computing", error: null } : item);
+    historyRef.current = computingHistory;
+    setHistory(computingHistory);
     const worker = historyQueueWorkerRef.current ?? new Worker(new URL("./calculation-worker.js", import.meta.url), { type: "module" });
     historyQueueWorkerRef.current = worker;
     const jobId = ++historyQueueJobRef.current;
@@ -292,14 +294,20 @@ export function App() {
       worker.terminate();
       historyQueueWorkerRef.current = null;
       historyQueueBusyRef.current = false;
-      updateHistoryQueue(historyQueueRef.current.map((item) => item.id === nextItem.id ? { ...item, status: "failed", error: "Time budget reached" } : item));
+      const nextHistory = historyRef.current.map((item) => item.id === nextItem.id ? { ...item, state: "failed", value: null, error: "Time budget reached" } : item);
+      historyRef.current = nextHistory;
+      setHistory(nextHistory);
+      queueMicrotask(processHistoryQueue);
     }, 10000);
     worker.onmessage = ({ data }) => {
       clearTimeout(deadline);
       if (jobId !== historyQueueJobRef.current || historyQueueWorkerRef.current !== worker) return;
       historyQueueBusyRef.current = false;
       if (data.type === "error") {
-        updateHistoryQueue(historyQueueRef.current.map((item) => item.id === nextItem.id ? { ...item, status: "failed", error: calculationErrorMessage(data.message) } : item));
+        const nextHistory = historyRef.current.map((item) => item.id === nextItem.id ? { ...item, state: "failed", value: null, error: calculationErrorMessage(data.message) } : item);
+        historyRef.current = nextHistory;
+        setHistory(nextHistory);
+        queueMicrotask(processHistoryQueue);
         return;
       }
       finishHistoryQueueItem(nextItem.id, { expression: nextItem.expression, value: deserializeValue(data.value) });
@@ -311,21 +319,28 @@ export function App() {
       historyQueueBusyRef.current = false;
       historyQueueWorkerRef.current?.terminate();
       historyQueueWorkerRef.current = null;
-      updateHistoryQueue(historyQueueRef.current.map((item) => item.id === nextItem.id ? { ...item, status: "failed", error: "Calculation failed" } : item));
+      const nextHistory = historyRef.current.map((item) => item.id === nextItem.id ? { ...item, state: "failed", value: null, error: "Calculation failed" } : item);
+      historyRef.current = nextHistory;
+      setHistory(nextHistory);
+      queueMicrotask(processHistoryQueue);
     };
-    worker.postMessage({ jobId, expression: nextItem.expression, references: historyReferences(historyRef.current), options: { precision } });
+    worker.postMessage({ jobId, expression: nextItem.expression, references: payload.references.map(([token, value]) => [token, serializeValue(value)]), options: { precision } });
   }
 
   function commit() {
     const source = expression.trim();
     if (!source) return;
-    if (historyQueueRef.current.length >= maximumQueuedHistorySaves) {
+    if (pendingHistory.length >= maximumQueuedHistorySaves) {
       setToast(`History save queue is limited to ${maximumQueuedHistorySaves.toLocaleString()} items`);
       setTimeout(() => setToast(""), 1800);
       return;
     }
-    const nextQueue = [...historyQueueRef.current, { id: ++historyQueueEntryRef.current, expression: source, status: "queued" }];
-    updateHistoryQueue(nextQueue);
+    const id = nextIdRef.current;
+    nextIdRef.current += 1;
+    setNextId(nextIdRef.current);
+    const nextHistory = appendHistoryEntry(historyRef.current, { id, expression: source });
+    historyRef.current = nextHistory;
+    setHistory(nextHistory);
     processHistoryQueue();
   }
 
@@ -344,9 +359,24 @@ export function App() {
     historyQueueWorkerRef.current?.terminate();
     historyQueueWorkerRef.current = null;
     historyQueueBusyRef.current = false;
-    updateHistoryQueue([]);
+    const nextHistory = historyRef.current.filter((item) => item.state === "completed");
+    historyRef.current = nextHistory;
+    setHistory(nextHistory);
     setToast("Cancelled unfinished History calculations");
     setTimeout(() => setToast(""), 1800);
+  }
+
+  function deleteHistoryEntry(id) {
+    // A deletion changes relative-reference semantics, so no in-flight result
+    // may publish against the old ledger snapshot.
+    historyQueueJobRef.current += 1;
+    historyQueueWorkerRef.current?.terminate();
+    historyQueueWorkerRef.current = null;
+    historyQueueBusyRef.current = false;
+    const nextHistory = invalidateAfterHistoryDeletion(historyRef.current, id);
+    historyRef.current = nextHistory;
+    setHistory(nextHistory);
+    queueMicrotask(processHistoryQueue);
   }
 
   function addToMemory() {
@@ -378,7 +408,7 @@ export function App() {
       return;
     }
     if (key === "Ans") {
-      if (!history.length) { setToast("No History result available"); setTimeout(() => setToast(""), 1600); focusExpression(); return; }
+      if (!completedHistory.length) { setToast("No History result available"); setTimeout(() => setToast(""), 1600); focusExpression(); return; }
       updatePreview(`${expression}@history(-1)`);
       focusExpression();
       return;
@@ -681,7 +711,7 @@ export function App() {
     setExportDialogOpen(false);
     if (!highPrecision) {
       try {
-        await downloadNotebook(createNotebook({ expression, previewValue, includeActiveAnswer: completedExpressionRef.current === expression, history, nextId, view: currentViewSettings(), includeView: exportView, includeAnswers }), saveHandle);
+        await downloadNotebook(createNotebook({ expression, previewValue, includeActiveAnswer: completedExpressionRef.current === expression, history: completedHistory, nextId, view: currentViewSettings(), includeView: exportView, includeAnswers }), saveHandle);
         setToast(includeAnswers ? "Notebook with answers downloaded" : "Notebook expressions downloaded");
       } catch { setToast("Notebook could not be saved"); }
       setTimeout(() => setToast(""), 1800);
@@ -689,7 +719,7 @@ export function App() {
     }
     const operation = startNotebookOperation("Preparing 10M-digit notebook export…");
     try {
-      const recalculatedHistory = await recomputeNotebookHistory(operation, history, { calculationPrecision: exportPrecision });
+      const recalculatedHistory = await recomputeNotebookHistory(operation, completedHistory, { calculationPrecision: exportPrecision });
       let activeValue = null;
       if (expression.trim()) {
         setTransferStatus("Recomputing active expression…");
@@ -741,9 +771,9 @@ export function App() {
     try {
       const recalculatedHistory = await recomputeNotebookHistory(operation, pending.notebook.history);
       if (operation.cancelled) throw new Error("cancelled");
-      historyRef.current = recalculatedHistory;
+      historyRef.current = rebuildHistoryLedger(recalculatedHistory.map((entry) => ({ ...entry, state: "completed" })));
       nextIdRef.current = pending.notebook.nextId;
-      setHistory(recalculatedHistory);
+      setHistory(historyRef.current);
       setNextId(pending.notebook.nextId);
       setExpression(pending.notebook.expression);
       setPreviewValue(recalculatedHistory[0]?.value ?? previewValue);
@@ -926,7 +956,7 @@ export function App() {
         </div>
         <div className="trail-panel">
           <div className="panel-heading">
-            <div><p className="eyebrow">HISTORY</p><h2>{history.length} calculations{historyQueue.length ? <span className="history-queue-count"> · {historyQueue.length} queued</span> : null}</h2></div>
+            <div><p className="eyebrow">HISTORY</p><h2>{completedHistory.length} calculations{pendingHistory.length ? <span className="history-queue-count"> · {pendingHistory.length} queued</span> : null}</h2></div>
             <div className="history-toolbar">
               <button className="quiet examples-button" aria-haspopup="dialog" title="Browse verified example notebooks" onClick={openExamplesBrowser}>Examples</button>
               <button className="history-icon" aria-label="Chart History" title="Chart History" onClick={() => setHistoryChartOpen(true)}><ChartNoAxesCombined aria-hidden="true" /></button>
@@ -935,15 +965,15 @@ export function App() {
           </div>
           {transferStatus && <div className="transfer-status" role="status">{transferStatus}{notebookOperationRef.current && <button onClick={cancelNotebookOperation}>Cancel</button>}</div>}
           <div className="history-list">
-            {historyQueue.length > 0 && <section className="history-queue" aria-label="Pending History calculations">
-              <div className="history-queue-heading"><span>{historyQueue.some((item) => item.status === "computing") ? "Computing History queue" : historyQueue.some((item) => item.status === "failed") ? "History queue needs attention" : "History queue"}</span><button onClick={cancelHistoryQueue}>Cancel queue</button></div>
-              {historyQueue.map((item) => <article className={`history-item history-pending ${item.status}`} key={`queue-${item.id}`}>
-                <div className="history-top"><span className="history-id">{item.status === "computing" ? "◌ Computing" : item.status === "failed" ? "! Not calculated" : "○ Queued"}</span></div>
+            {pendingHistory.length > 0 && <section className="history-queue" aria-label="Pending History calculations">
+              <div className="history-queue-heading"><span>{pendingHistory.some((item) => item.state === "computing") ? "Computing History queue" : pendingHistory.some((item) => item.state === "failed" || item.state === "blocked") ? "History queue needs attention" : "History queue"}</span><button onClick={cancelHistoryQueue}>Cancel queue</button></div>
+              {pendingHistory.slice().reverse().map((item) => <article className={`history-item history-pending ${item.state}`} key={`queue-${item.id}`}>
+                <div className="history-top"><span className="history-id">@history({item.id}) · {item.state === "computing" ? "◌ Computing" : item.state === "failed" || item.state === "blocked" ? "! Not calculated" : item.state === "dirty" ? "↻ Needs update" : "○ Queued"}</span></div>
                 <p className="history-expression selectable-text" aria-label={`Queued History expression: ${item.expression}`}>{item.expression}</p>
-                <p className="history-pending-status">{item.status === "failed" ? item.error : item.status === "computing" ? "Resolving against completed History…" : "Waiting for earlier History calculations…"}</p>
+                <p className="history-pending-status">{item.state === "failed" || item.state === "blocked" ? item.error : item.state === "computing" ? "Resolving its required History values…" : item.state === "dirty" ? "Waiting to recompute after a History change…" : "Waiting for earlier History calculations…"}</p>
               </article>)}
             </section>}
-            {history.map((item) => {
+            {completedHistory.map((item) => {
               const itemResult = renderResult(item.value);
               const itemPrimality = primalityLabel(item.value);
               const itemTooltip = formatAutomatically(item.value, { base, precision, notation, groupDigits }).text;
@@ -953,7 +983,7 @@ export function App() {
                   <span className="history-actions">
                     <button className="use-button info-button" aria-label={`Inspect History item ${item.id}`} onClick={() => openHistoryInfo(item)}>Info</button>
                     <button className="use-button" aria-label={`Use History item ${item.id} in the active expression`} onClick={() => useHistory(item)}>Use</button>
-                    <button className="delete-history" aria-label={`Delete History item ${item.id}`} title={`Delete @history(${item.id})`} onClick={() => { const nextHistory = historyRef.current.filter((entry) => entry.id !== item.id); historyRef.current = nextHistory; setHistory(nextHistory); }}>×</button>
+                    <button className="delete-history" aria-label={`Delete History item ${item.id}`} title={`Delete @history(${item.id})`} onClick={() => deleteHistoryEntry(item.id)}>×</button>
                   </span>
                 </div>
                 <p className="history-expression selectable-text" aria-label={`History expression: ${item.expression}`}>{item.expression}</p>
@@ -968,7 +998,7 @@ export function App() {
     {exportDialogOpen && <div className="notebook-overlay" role="dialog" aria-modal="true" aria-label="Download notebook"><div className="notebook-card"><div className="panel-heading"><div><p className="eyebrow">DOWNLOAD NOTEBOOK</p><h2>Choose what to include</h2></div><button className="quiet" onClick={() => setExportDialogOpen(false)}>Close</button></div><fieldset className="export-options"><legend>History contents</legend><label><input type="radio" name="answers" checked={exportAnswers === "none"} onChange={() => setExportAnswers("none")} /> Expressions only</label><label><input type="radio" name="answers" checked={exportAnswers === "current"} onChange={() => setExportAnswers("current")} /> With answers</label><label><input type="radio" name="answers" checked={exportAnswers === "10m"} onChange={() => setExportAnswers("10m")} /> With answers (10M digits)</label></fieldset><label className="export-view-option"><input type="checkbox" checked={exportView} onChange={(event) => setExportView(event.target.checked)} /> Include current view settings</label><p className="notebook-note">Imported notebooks always recalculate expressions; saved answers are archival metadata.</p><div className="notebook-actions"><button className="quiet" onClick={() => setExportDialogOpen(false)}>Cancel</button><button className="download-button" onClick={exportNotebook}>Download JSON</button></div></div></div>}
     {pendingImport && <div className="notebook-overlay" role="dialog" aria-modal="true" aria-label="Confirm notebook import"><div className="notebook-card"><p className="eyebrow">IMPORT NOTEBOOK</p><h2>Replace the current workbench?</h2><p className="notebook-note"><b>{pendingImport.label}</b> has {pendingImport.notebook.history.length} History entries. Every expression will be recalculated; saved answers are never trusted.</p>{pendingImport.notebook.view && <p className="notebook-note">Its saved view settings will also be applied.</p>}<div className="notebook-actions"><button className="quiet" onClick={() => setPendingImport(null)}>Cancel</button><button className="download-button" onClick={confirmNotebookImport}>Import and recalculate</button></div></div></div>}
     {memoryOpen && memory && <div className="memory-overlay" role="dialog" aria-modal="true" aria-label="Memory details"><div className="memory-card" ref={memoryDialogRef}><div className="panel-heading"><div><p className="eyebrow">MEMORY</p><h2>Accumulated expression</h2></div><button className="quiet" ref={memoryCloseRef} onClick={closeMemory}>Close</button></div><p className="memory-expression selectable-text">{memory.expression}</p><button className="memory-answer selectable-output copyable-value" aria-label={resultLabel(memoryDisplay, "Copy memory result")} title={`${memoryTooltip} · click to copy`} onClick={() => copyResult(memory.value, "memory-result")}>{renderResultContent(memoryDisplay)}<CopyFeedback target="memory-result" /></button><InspectorSummary data={memoryInspection} subject={{ value: memory.value, data: memoryInspection, digits: memoryDigitCount, sourceExpression: memory.expression }} /><div className="memory-actions"><button className="use-button" onClick={recallMemory}>Recall into expression</button><button className="quiet" onClick={() => { setMemory(null); closeMemory(); }}>Clear memory</button></div></div></div>}
-    {historyChartOpen && <Suspense fallback={<div className="history-chart-overlay" role="status"><section className="history-chart-card history-chart-loading">Loading History chart…</section></div>}><HistoryChartDialog history={history} base={base} precision={precision} notation={notation} groupDigits={groupDigits} onClose={() => setHistoryChartOpen(false)} onInspect={inspectChartHistory} /></Suspense>}
+    {historyChartOpen && <Suspense fallback={<div className="history-chart-overlay" role="status"><section className="history-chart-card history-chart-loading">Loading History chart…</section></div>}><HistoryChartDialog history={completedHistory} base={base} precision={precision} notation={notation} groupDigits={groupDigits} onClose={() => setHistoryChartOpen(false)} onInspect={inspectChartHistory} /></Suspense>}
     {fullInfoOpen && fullInfoSubject && <div className="full-info-overlay" role="dialog" aria-modal="true" aria-labelledby="full-info-title" onMouseDown={(event) => { if (event.target === event.currentTarget) closeFullInfo(); }}><section className="full-info-card" ref={fullInfoDialogRef}><div className="full-info-header"><div><p className="eyebrow">VALUE INFORMATION</p><h2 id="full-info-title">Full calculation details</h2></div><button className="quiet" ref={fullInfoCloseRef} onClick={closeFullInfo}>Close</button></div><div className="full-info-scroll"><FullInfoDetails {...fullInfoSubject} /></div></section></div>}
     {examplesOpen && <div className="example-browser-overlay" role="dialog" aria-modal="true" aria-labelledby="example-browser-title" onMouseDown={(event) => { if (event.target === event.currentTarget) closeExamplesBrowser(); }}>
       <section className={`example-browser-card ${exampleView}`}>
