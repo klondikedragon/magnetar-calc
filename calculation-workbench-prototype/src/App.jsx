@@ -6,6 +6,7 @@ import { createNotebook, validateNotebook } from "./notebook";
 import { exampleCategories, filterExampleCatalog, sortExampleCatalog } from "./exampleCatalog";
 import { filterFunctionCatalog, functionCategories, functionInsertion } from "./functionCatalog";
 import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryWork, rebuildHistoryLedger, recoverOrphanedHistoryWork, transitionHistoryEntry } from "./historyLedger";
+import { historyReferenceEntries } from "./historyReferences";
 import { createHistoryQueueDiagnostics } from "./historyQueueDiagnostics";
 import { createCoalescedPersistence } from "./coalescedPersistence";
 
@@ -79,12 +80,9 @@ function readStoredWorkspace() {
   } catch { return null; }
 }
 
-function historyReferences(items) {
+function historyReferences(items, options) {
   const completed = items.filter((item) => item.state === "completed" || item.state === undefined);
-  return [...completed.flatMap((item, index) => {
-    const value = serializeValue(item.value);
-    return [[`@history(${item.id})`, value], [`@history(-${index + 1})`, value]];
-  }), ["@n", String(items.length + 1)]];
+  return historyReferenceEntries(completed, options).map(([token, value]) => [token, token === "@n" ? value : serializeValue(value)]);
 }
 
 export function App() {
@@ -247,8 +245,13 @@ export function App() {
   }), ["@n", String(history.length + 1)]]), [completedHistory, history.length]);
   // Primality annotations are presentation metadata, not calculation inputs.
   // Keep the calculation worker stable when an asynchronous badge arrives.
-  const historyReferenceKey = completedHistory.map((item) => `${item.id}:${item.value.kind}:${item.value.decimal?.toString?.() ?? item.value.integer?.toString?.() ?? item.value.numerator?.toString?.() ?? item.value.number ?? item.value.full}:${item.value.denominator?.toString?.() ?? ""}:${item.value.exactInteger ?? ""}`).join("|");
-  const workerReferences = useMemo(() => historyReferences(completedHistory), [historyReferenceKey]);
+  const previewReferenceSnapshot = useMemo(() => {
+    const references = historyReferences(completedHistory, { expression, ordinal: history.length + 1 });
+    return { references, key: JSON.stringify(references) };
+  }, [completedHistory, expression, history.length]);
+  // Keep the preview worker stable when unrelated History entries arrive. The
+  // serialized payload changes only if this expression's actual inputs do.
+  const workerReferences = useMemo(() => previewReferenceSnapshot.references, [previewReferenceSnapshot.key]);
 
   function updatePreview(nextExpression) {
     setExpression(nextExpression);
@@ -280,7 +283,7 @@ export function App() {
         const value = deserializeValue(data.value);
         setPreviewValue(value);
         completedExpressionRef.current = source;
-        completedReferenceKeyRef.current = historyReferenceKey;
+        completedReferenceKeyRef.current = previewReferenceSnapshot.key;
         setCalculation({ status: "completed", startedAt: 0 });
       };
       worker.onerror = () => {
