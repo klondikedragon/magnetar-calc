@@ -35,6 +35,15 @@ test("schedules only the oldest ready entry and rejects a stale job revision", (
   assert.equal(stale.find((entry) => entry.id === 1).state, "computing");
 });
 
+test("never schedules past an earlier computing entry", () => {
+  let history = appendHistoryEntry([], { id: 1, expression: "yellowstone(@n)" });
+  history = appendHistoryEntry(history, { id: 2, expression: "yellowstone(@n)" });
+  const computing = transitionHistoryEntry(history, 1, 1, { state: "computing" });
+  const next = nextHistoryWork(computing);
+  assert.equal(next.kind, "computing");
+  assert.equal(next.entry.id, 1);
+});
+
 test("returns orphaned computing work to the serial queue", () => {
   const history = [complete(2, "2", "2"), { ...complete(1, "1", "1"), state: "computing" }];
   const recovered = recoverOrphanedHistoryWork(history);

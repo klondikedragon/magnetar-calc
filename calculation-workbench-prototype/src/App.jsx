@@ -144,6 +144,9 @@ export function App() {
   const historyQueueJobRef = useRef(0);
   const historyQueueRunRef = useRef(null);
   const historyQueueDiagnosticsRef = useRef(createHistoryQueueDiagnostics());
+  // History state is committed through transactions below. Do not mirror the
+  // rendered `history` value back here in an effect: under rapid input an
+  // older render can otherwise overwrite a newer queue transaction.
   const historyRef = useRef(history);
   const nextIdRef = useRef(nextId);
   const exportWorkerRef = useRef(null);
@@ -183,7 +186,6 @@ export function App() {
     setExpressionLines(Math.max(1, Math.ceil((height - verticalPadding) / lineHeight)));
   }
   useEffect(() => { requestAnimationFrame(() => sizeExpression()); }, [expression, expressionLines]);
-  useEffect(() => { historyRef.current = history; }, [history]);
   useEffect(() => { nextIdRef.current = nextId; }, [nextId]);
   useEffect(() => () => clearTimeout(copyFeedbackTimerRef.current), []);
   useEffect(() => {
@@ -345,9 +347,36 @@ export function App() {
   }
 
   function processHistoryQueue() {
+    if (historyQueueBusyRef.current && !historyQueueRunRef.current) {
+      historyQueueBusyRef.current = false;
+      traceHistoryQueue({ event: "recovered-orphan-busy-flag" });
+    }
     if (historyQueueBusyRef.current) return;
     const work = nextHistoryWork(historyRef.current);
     if (work.kind === "empty") return;
+    if (work.kind === "computing") {
+      const activeRun = historyQueueRunRef.current;
+      if (activeRun?.entryId === work.entry.id && activeRun.revision === work.entry.revision) {
+        // Keep the state flag aligned with the durable run record. A callback
+        // can only advance this entry; later work must not bypass it.
+        historyQueueBusyRef.current = true;
+        traceHistoryQueue({ event: "active-run", id: work.entry.id, revision: work.entry.revision, jobId: activeRun.jobId });
+        return;
+      }
+      // Development refreshes, navigation, and a terminated worker can leave a
+      // persisted entry marked computing after its in-memory run is gone. Stop
+      // any mismatched run and make every orphan eligible again in chronology.
+      if (activeRun) {
+        historyQueueJobRef.current += 1;
+        releaseHistoryQueueRun(activeRun, { terminate: true });
+      }
+      const recovered = recoverOrphanedHistoryWork(historyRef.current);
+      historyRef.current = recovered;
+      setHistory(recovered);
+      traceHistoryQueue({ event: "recovered-orphan", id: work.entry.id, revision: work.entry.revision });
+      queueMicrotask(processHistoryQueue);
+      return;
+    }
     if (work.kind === "waiting") { traceHistoryQueue({ event: "waiting", id: work.entry.id, revision: work.entry.revision }); return; }
     if (work.kind === "blocked") {
       const nextHistory = transitionHistoryEntry(historyRef.current, work.entry.id, work.entry.revision, { state: "blocked", value: null, error: work.error });

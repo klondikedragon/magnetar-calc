@@ -72,8 +72,12 @@ export function workerReferencesForEntry(history, entry) {
 // The scheduler is deliberately pure: it makes no worker or UI decisions.
 // It establishes the single legal next transition for the serial queue.
 export function nextHistoryWork(history) {
-  const entry = ordered(history).find((item) => item.state === "queued" || item.state === "dirty");
+  // A serial queue cannot pass a computing entry. If its worker disappears, the
+  // app reconciles that entry back to queued before asking again; allowing a
+  // later entry through would silently turn one queue into concurrent work.
+  const entry = ordered(history).find((item) => item.state === "queued" || item.state === "dirty" || item.state === "computing");
   if (!entry) return { kind: "empty" };
+  if (entry.state === "computing") return { kind: "computing", entry };
   const payload = workerReferencesForEntry(history, entry);
   if (payload.waiting) return { kind: "waiting", entry };
   if (payload.blocked) return { kind: "blocked", entry, error: payload.blocked };
