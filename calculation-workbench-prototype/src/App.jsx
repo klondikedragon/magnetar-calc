@@ -125,6 +125,8 @@ export function App() {
   const [provenanceOpen, setProvenanceOpen] = useState(false);
   const [fullInfoOpen, setFullInfoOpen] = useState(false);
   const [fullInfoSubject, setFullInfoSubject] = useState(null);
+  const [sequenceRunOpen, setSequenceRunOpen] = useState(false);
+  const [sequenceRunCount, setSequenceRunCount] = useState("50");
   const [expressionLines, setExpressionLines] = useState(1);
   const expressionRef = useRef(null);
   const memoryFeedbackTimer = useRef(null);
@@ -531,6 +533,34 @@ export function App() {
     setHistory(nextHistory);
     traceHistoryQueue({ event: "queued", id, revision: nextHistory[0].revision });
     processHistoryQueue();
+  }
+
+  const hasDynamicHistoryExpression = /@n\b|@history\(/.test(expression);
+  const availableHistorySlots = Math.max(0, maximumQueuedHistorySaves - pendingHistory.length);
+
+  function queueRepeatedHistoryExpression() {
+    const source = expression.trim();
+    const requested = Number(sequenceRunCount);
+    const count = Number.isSafeInteger(requested) ? Math.min(Math.max(0, requested), availableHistorySlots) : 0;
+    if (!source || count < 1) {
+      setToast(availableHistorySlots ? "Enter a count of at least 1" : "History save queue is full");
+      setTimeout(() => setToast(""), 1800);
+      return;
+    }
+    let nextHistory = historyRef.current;
+    const firstId = nextIdRef.current;
+    for (let offset = 0; offset < count; offset += 1) {
+      const id = nextIdRef.current;
+      nextIdRef.current += 1;
+      nextHistory = appendHistoryEntry(nextHistory, { id, expression: source });
+    }
+    historyRef.current = nextHistory;
+    setHistory(nextHistory);
+    setNextId(nextIdRef.current);
+    traceHistoryQueue({ event: "queued-batch", id: firstId, count });
+    setSequenceRunOpen(false);
+    processHistoryQueue();
+    requestAnimationFrame(() => expressionRef.current?.focus());
   }
 
   function cancelCalculation() {
@@ -1150,7 +1180,7 @@ export function App() {
   return <main className="app-shell">
     <section className={`workbench ${expressionLines >= 5 ? "expression-tall" : ""}`}>
       <section className={`calculation-stage ${expressionError ? "expression-invalid" : ""}`} aria-label="Current calculation">
-        <div className="stage-topline"><span>ACTIVE EXPRESSION</span><span className={expressionError ? "stage-hint expression-warning" : "stage-hint"}>{expressionError ? `⚠ ${expressionError}` : "Enter to save to History"}</span></div>
+        <div className="stage-topline"><span>ACTIVE EXPRESSION</span><span className="stage-actions">{hasDynamicHistoryExpression && <button className="run-history-button" onClick={() => setSequenceRunOpen(true)} title="Add this History-aware expression several times">Run ×</button>}<span className={expressionError ? "stage-hint expression-warning" : "stage-hint"}>{expressionError ? `⚠ ${expressionError}` : "Enter to save to History"}</span></span></div>
         <textarea ref={expressionRef} rows="1" aria-label="Expression" spellCheck={false} value={expression} onChange={(event) => updatePreview(event.target.value)} onInput={(event) => sizeExpression(event.currentTarget)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); commit(); } if (event.key === "Escape") { event.preventDefault(); updatePreview(""); } }} />
         <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={previewTooltip} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{showCalculating ? <span className="calculation-status" role="status">◌ Computing preview<button onClick={cancelCalculation}>Cancel</button></span> : calculation.status === "timed-out" ? <span className="toast">Exact calculation reached its time budget</span> : toast && <span className="toast" role="status">{toast}</span>}</div>
         {inspectorOpen && <InspectorSummary data={inspection} subject={{ value: previewValue, data: inspection, digits: digitCount, sourceExpression: expression }} />}
@@ -1195,6 +1225,7 @@ export function App() {
     {memoryOpen && memory && <div className="memory-overlay" role="dialog" aria-modal="true" aria-label="Memory details"><div className="memory-card" ref={memoryDialogRef}><div className="panel-heading"><div><p className="eyebrow">MEMORY</p><h2>Accumulated expression</h2></div><button className="quiet" ref={memoryCloseRef} onClick={closeMemory}>Close</button></div><p className="memory-expression selectable-text">{memory.expression}</p><button className="memory-answer selectable-output copyable-value" aria-label={resultLabel(memoryDisplay, "Copy memory result")} title={`${memoryTooltip} · click to copy`} onClick={() => copyResult(memory.value, "memory-result")}>{renderResultContent(memoryDisplay)}<CopyFeedback target="memory-result" /></button><InspectorSummary data={memoryInspection} subject={{ value: memory.value, data: memoryInspection, digits: memoryDigitCount, sourceExpression: memory.expression }} /><div className="memory-actions"><button className="use-button" onClick={recallMemory}>Recall into expression</button><button className="quiet" onClick={() => { setMemory(null); closeMemory(); }}>Clear memory</button></div></div></div>}
     {historyChartOpen && <Suspense fallback={<div className="history-chart-overlay" role="status"><section className="history-chart-card history-chart-loading">Loading History chart…</section></div>}><HistoryChartDialog history={completedHistory} base={base} precision={precision} notation={notation} groupDigits={groupDigits} onClose={() => setHistoryChartOpen(false)} onInspect={inspectChartHistory} /></Suspense>}
     {fullInfoOpen && fullInfoSubject && <div className="full-info-overlay" role="dialog" aria-modal="true" aria-labelledby="full-info-title" onMouseDown={(event) => { if (event.target === event.currentTarget) closeFullInfo(); }}><section className="full-info-card" ref={fullInfoDialogRef}><div className="full-info-header"><div><p className="eyebrow">VALUE INFORMATION</p><h2 id="full-info-title">Full calculation details</h2></div><button className="quiet" ref={fullInfoCloseRef} onClick={closeFullInfo}>Close</button></div><div className="full-info-scroll"><FullInfoDetails {...fullInfoSubject} /></div></section></div>}
+    {sequenceRunOpen && <div className="notebook-overlay" role="dialog" aria-modal="true" aria-labelledby="sequence-run-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setSequenceRunOpen(false); }}><section className="notebook-card"><p className="eyebrow">REPEAT HISTORY SAVE</p><h2 id="sequence-run-title">Add this expression to History</h2><p className="notebook-note">Each entry keeps this expression and receives its own History position. Entries that depend on earlier results remain chronological.</p><label className="sequence-run-count">Count<input type="number" min="1" max={availableHistorySlots} step="1" autoFocus value={sequenceRunCount} onChange={(event) => setSequenceRunCount(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") queueRepeatedHistoryExpression(); }} /></label><div className="sequence-run-presets">{[10, 50, 100, 1000].map((count) => <button key={count} className="quiet" disabled={count > availableHistorySlots} onClick={() => setSequenceRunCount(String(count))}>{count.toLocaleString()}</button>)}</div><p className="notebook-note">Up to {availableHistorySlots.toLocaleString()} currently available queue slots.</p><div className="notebook-actions"><button className="quiet" onClick={() => setSequenceRunOpen(false)}>Cancel</button><button className="download-button" onClick={queueRepeatedHistoryExpression}>Add to History</button></div></section></div>}
     {examplesOpen && <div className="example-browser-overlay" role="dialog" aria-modal="true" aria-labelledby="example-browser-title" onMouseDown={(event) => { if (event.target === event.currentTarget) closeExamplesBrowser(); }}>
       <section className={`example-browser-card ${exampleView}`}>
         <div className="panel-heading"><div><p className="eyebrow">EXAMPLES LIBRARY</p><h2 id="example-browser-title">Explore a calculation</h2></div><button className="quiet" onClick={closeExamplesBrowser}>Close</button></div>

@@ -2,14 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { evaluateAutomatically, inspectAutomatically, deserializeValue, serializeValue } from "../src/engine.js";
 
-test("retains larger Steinhaus triangles as direct exact powers", () => {
+test("materializes Steinhaus triangles inside the exact expansion envelope", () => {
   const value = evaluateAutomatically("sm_triangle(301)");
-  assert.equal(value.kind, "structural-power");
-  assert.equal(value.canonical, "301^301");
-  assert.equal(value.reduction.derivation, "△301 = 301^301");
-  const facts = inspectAutomatically(value).facts;
-  assert.equal(facts[0].id, "steinhaus-reduction");
-  assert.ok(facts.some((fact) => fact.id === "decimal-digit-estimate"));
+  assert.equal(value.kind, "exact-integer");
+  assert.equal(value.exactInteger.length, 747);
 });
 
 test("reduces the finite square-of-three construction without digit expansion", () => {

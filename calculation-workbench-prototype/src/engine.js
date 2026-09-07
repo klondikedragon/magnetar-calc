@@ -730,7 +730,13 @@ function steinhausSide(ast, references, options) {
 function tryReduceSteinhaus(base, nesting, sides, options) {
   if (sides.kind !== "integer" || nesting !== 1n) return null;
   const sideCount = Number(sides.value);
-  if (sideCount === 3 && base <= 300n) return decimalEngine.evaluate(`${base}^${base}`, new Map(), options);
+  if (sideCount === 3 && base <= 20_000n) {
+    // Match the native exact engine's practical expansion envelope before
+    // choosing the structural representation.  20,000^20,000 has fewer than
+    // 100,000 decimal digits, the current exact-value ceiling.
+    const exact = tryEvaluateExact(parseExpression(`${base}^${base}`), new Map());
+    if (exact) return hydrateExactValue(exact);
+  }
   if (sideCount === 4 && base === 2n) return decimalEngine.evaluate("256", new Map(), options);
   // For larger triangles, retain the direct n^n construction rather than
   // collapsing the entire polygon into an opaque token. This exposes the
@@ -843,8 +849,12 @@ function materializeExactStructuralAst(ast, references, options) {
       : materializeExactStructuralAst(argument, references, options)),
   };
   const value = steinhausFromAst(candidate, references, options);
-  if (value?.kind !== "decimal.js") return candidate;
-  return { type: "number", raw: value.decimal.toString(), start: candidate.start, end: candidate.end };
+  if (value?.kind === "decimal.js") return { type: "number", raw: value.decimal.toString(), start: candidate.start, end: candidate.end };
+  // Exact reductions are equally valid numeric subexpressions. Materialize
+  // integer results only here; rational constructions retain their semantic
+  // form until the general exact evaluator handles them.
+  if (value?.kind === "exact-integer") return { type: "number", raw: exactParts(value).numerator.toString(), start: candidate.start, end: candidate.end };
+  return candidate;
 }
 
 export const engineRegistry = [decimalEngine, breakEternityEngine];
@@ -942,6 +952,11 @@ export function evaluateAutomatically(expression, references = new Map(), option
   if (extendedScale) return extendedScale;
   const structuralPower = options.forceDecimal ? null : tryEvaluateStructuralPower(parsedAst, references);
   if (structuralPower) return structuralPower;
+  // A top-level finite Steinhaus reduction may be an exact integer. Preserve
+  // that semantic value before the composition pass turns it into a numeric
+  // literal for ordinary enclosing functions.
+  const directSteinhaus = options.forceDecimal ? null : steinhausFromAst(parsedAst, references, options);
+  if (isExactValue(directSteinhaus)) return hydrateExactValue(directSteinhaus);
   const ast = materializeExactStructuralAst(parsedAst, references, options);
   const normalizedExpression = astToExpression(ast);
   const structural = steinhausFromAst(ast, references, options);
