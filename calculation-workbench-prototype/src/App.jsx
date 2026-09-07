@@ -7,6 +7,7 @@ import { exampleCategories, filterExampleCatalog, sortExampleCatalog } from "./e
 import { filterFunctionCatalog, functionCategories, functionInsertion } from "./functionCatalog";
 import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryWork, rebuildHistoryLedger, transitionHistoryEntry } from "./historyLedger";
 import { createHistoryQueueDiagnostics } from "./historyQueueDiagnostics";
+import { createCoalescedPersistence } from "./coalescedPersistence";
 
 const HistoryChartDialog = lazy(() => import("./HistoryChartDialog"));
 
@@ -155,6 +156,14 @@ export function App() {
   const completedExpressionRef = useRef("");
   const completedReferenceKeyRef = useRef("");
   const copyFeedbackTimerRef = useRef(null);
+  const workspacePersistenceRef = useRef(null);
+  if (!workspacePersistenceRef.current) {
+    workspacePersistenceRef.current = createCoalescedPersistence({
+      write: (snapshot) => {
+        try { window.localStorage.setItem(storageKey, snapshot); } catch { /* Storage is optional; the calculator remains usable without it. */ }
+      },
+    });
+  }
   const traceHistoryQueue = (event) => {
     if (!import.meta.env.DEV) return;
     const trace = historyQueueDiagnosticsRef.current;
@@ -183,16 +192,25 @@ export function App() {
     return () => strip?.removeEventListener("click", returnFocus);
   }, []);
   useEffect(() => {
-    try {
-      window.localStorage.setItem(storageKey, JSON.stringify({
+    workspacePersistenceRef.current.schedule(() => JSON.stringify({
         expression, nextId,
         view: { base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection },
         previewValue: serializeValue(previewValue),
         history: history.filter((item) => item.state === "completed").map((item) => ({ id: item.id, expression: item.expression, value: serializeValue(item.value) })),
         memory: memory ? { ...memory, value: serializeValue(memory.value) } : null,
       }));
-    } catch { /* Storage is optional; the calculator remains usable without it. */ }
   }, [expression, base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection, nextId, previewValue, history, memory]);
+  useEffect(() => {
+    const flushWorkspace = () => workspacePersistenceRef.current?.flush();
+    const flushWhenHidden = () => { if (document.visibilityState === "hidden") flushWorkspace(); };
+    window.addEventListener("pagehide", flushWorkspace);
+    document.addEventListener("visibilitychange", flushWhenHidden);
+    return () => {
+      window.removeEventListener("pagehide", flushWorkspace);
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+      flushWorkspace();
+    };
+  }, []);
   const precisionLabel = useMemo(() => precision.toLocaleString(), [precision]);
   const paletteKeys = activeMode === "Number theory" ? numberTheoryKeys : activeMode === "Sequences" ? sequenceKeys : activeMode === "Programmer" ? keys : activeMode === "Trigonometry" ? keys : activeMode === "Scientific" ? keys : activeMode === "Ordinal / hierarchy" ? ordinalKeys : keys;
   const paletteHelp = activeMode === "Sequences" ? sequenceHelp : activeMode === "Ordinal / hierarchy" ? ordinalHelp : {};
