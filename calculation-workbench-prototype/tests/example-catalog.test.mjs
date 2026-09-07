@@ -19,7 +19,7 @@ test("Yellowstone fixture uses the next History position and has the OEIS prefix
   assert.deepEqual(actual, expected);
 });
 
-test("recurrence examples declare their source-backed initial terms and reusable rules", () => {
+test("recurrence examples declare 100-term source-backed histories and reusable rules", () => {
   const expected = new Map([
     ["sequences.lucas-companion", ["2", "1", "@history(-1) + @history(-2)"]],
     ["sequences.pell-silver-ratio", ["0", "1", "2 @history(-1) + @history(-2)"]],
@@ -29,7 +29,10 @@ test("recurrence examples declare their source-backed initial terms and reusable
   for (const [id, values] of expected) {
     const example = exampleCatalog.find((entry) => entry.id === id);
     const notebook = validateNotebook(example.notebook);
-    assert.deepEqual([...notebook.history].reverse().map((entry) => entry.expression), values.slice(0, -1));
+    const chronological = [...notebook.history].reverse();
+    assert.equal(chronological.length, 100);
+    assert.deepEqual(chronological.slice(0, values.length - 1).map((entry) => entry.expression), values.slice(0, -1));
+    assert.ok(chronological.slice(values.length - 1).every((entry) => entry.expression === values.at(-1)));
     assert.equal(notebook.expression, values.at(-1));
   }
 });
@@ -43,13 +46,23 @@ test("recurrence examples produce their independently documented prefixes", () =
   ];
   for (const [id, expected] of cases) {
     const notebook = validateNotebook(exampleCatalog.find((entry) => entry.id === id).notebook);
-    const values = [...notebook.history].reverse().map((entry) => evaluateAutomatically(entry.expression).decimal.toNumber());
+    const history = [...notebook.history].reverse();
+    const seedCount = id === "sequences.tribonacci" || id === "sequences.padovan-plastic" ? 3 : 2;
+    const values = history.slice(0, seedCount).map((entry) => evaluateAutomatically(entry.expression).decimal.toNumber());
     while (values.length < expected.length) {
       const references = new Map(values.map((value, index) => [`@history(-${values.length - index})`, String(value)]));
       values.push(evaluateAutomatically(notebook.expression, references).decimal.toNumber());
     }
     assert.deepEqual(values, expected);
   }
+});
+
+test("catalog categories use mathematical names and primary videos are searchable", () => {
+  assert.equal(exampleCatalog.find((entry) => entry.id === "history.fibonacci-continuation").category, "Sequences");
+  assert.equal(exampleCatalog.find((entry) => entry.id === "magnitude.power-tower-25").category, "Magnitude & growth");
+  const yellowstone = exampleCatalog.find((entry) => entry.id === "sequences.yellowstone-permutation");
+  assert.equal(yellowstone.video.title, "The Yellowstone Permutation — Numberphile");
+  assert.ok(filterExampleCatalog("yellowstone permutation numberphile").includes(yellowstone));
 });
 
 test("example search includes keywords and reference URLs but excludes drafts", () => {

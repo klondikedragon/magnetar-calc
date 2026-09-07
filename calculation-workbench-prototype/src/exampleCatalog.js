@@ -1,14 +1,19 @@
 import { validateNotebook } from "./notebook.js";
 
-const fibonacciNotebook = {
-  schemaVersion: 1,
-  activeExpression: { expression: "@history(-1) + @history(-2)" },
-  history: [
-    { id: 2, expression: "1" },
-    { id: 1, expression: "1" },
-  ],
-  nextHistoryId: 3,
-};
+function recurrenceNotebook(seeds, expression) {
+  const firstGeneratedId = seeds.length + 1;
+  return {
+    schemaVersion: 1,
+    activeExpression: { expression },
+    history: [
+      { repeat: { expression, count: 100 - seeds.length, startId: firstGeneratedId } },
+      ...seeds.slice().reverse().map((seed, index) => ({ id: seeds.length - index, expression: String(seed) })),
+    ],
+    nextHistoryId: 101,
+  };
+}
+
+const fibonacciNotebook = recurrenceNotebook([1, 1], "@history(-1) + @history(-2)");
 
 const powerTowerNotebook = {
   schemaVersion: 1,
@@ -26,33 +31,10 @@ const yellowstoneNotebook = {
   nextHistoryId: 1001,
 };
 
-const lucasNotebook = {
-  schemaVersion: 1,
-  activeExpression: { expression: "@history(-1) + @history(-2)" },
-  history: [{ id: 2, expression: "1" }, { id: 1, expression: "2" }],
-  nextHistoryId: 3,
-};
-
-const pellNotebook = {
-  schemaVersion: 1,
-  activeExpression: { expression: "2 @history(-1) + @history(-2)" },
-  history: [{ id: 2, expression: "1" }, { id: 1, expression: "0" }],
-  nextHistoryId: 3,
-};
-
-const tribonacciNotebook = {
-  schemaVersion: 1,
-  activeExpression: { expression: "@history(-1) + @history(-2) + @history(-3)" },
-  history: [{ id: 3, expression: "1" }, { id: 2, expression: "0" }, { id: 1, expression: "0" }],
-  nextHistoryId: 4,
-};
-
-const padovanNotebook = {
-  schemaVersion: 1,
-  activeExpression: { expression: "@history(-2) + @history(-3)" },
-  history: [{ id: 3, expression: "1" }, { id: 2, expression: "1" }, { id: 1, expression: "1" }],
-  nextHistoryId: 4,
-};
+const lucasNotebook = recurrenceNotebook([2, 1], "@history(-1) + @history(-2)");
+const pellNotebook = recurrenceNotebook([0, 1], "2 @history(-1) + @history(-2)");
+const tribonacciNotebook = recurrenceNotebook([0, 0, 1], "@history(-1) + @history(-2) + @history(-3)");
+const padovanNotebook = recurrenceNotebook([1, 1, 1], "@history(-2) + @history(-3)");
 
 /**
  * Examples are source-backed notebooks rather than cached answers. Imports
@@ -63,7 +45,7 @@ export const exampleCatalog = [
   {
     id: "history.fibonacci-continuation",
     published: true,
-    category: "History & sequences",
+    category: "Sequences",
     name: "Fibonacci continuation",
     description: "The archetypal two-term recurrence, whose neighboring-term ratios converge to the golden ratio.",
     keywords: ["fibonacci", "recurrence", "relative history", "previous answer", "sequence", "golden ratio"],
@@ -84,7 +66,7 @@ export const exampleCatalog = [
   {
     id: "magnitude.power-tower-25",
     published: true,
-    category: "Magnitude & structure",
+    category: "Magnitude & growth",
     name: "A power whose digit count is tractable",
     description: "A finite power construction whose decimal expansion is infeasible but whose scale remains mathematically accessible.",
     keywords: ["power tower", "exponentiation", "scientific notation", "digit count", "structural value", "large number"],
@@ -105,7 +87,7 @@ export const exampleCatalog = [
   {
     id: "sequences.yellowstone-permutation",
     published: true,
-    category: "History & sequences",
+    category: "Sequences",
     name: "The Yellowstone permutation",
     description: "A greedy permutation governed by a local tension between shared factors and coprimality.",
     keywords: ["yellowstone", "numberphile", "permutation", "gcd", "relatively prime", "a098550", "sequence position", "history"],
@@ -123,11 +105,12 @@ export const exampleCatalog = [
       { label: "Sloane et al.: The Yellowstone Permutation", url: "https://arxiv.org/abs/1501.01669" },
       { label: "Numberphile: The Yellowstone Permutation", url: "https://www.youtube.com/watch?v=DUaqiM1bGX4" },
     ],
+    video: { title: "The Yellowstone Permutation — Numberphile", url: "https://www.youtube.com/watch?v=DUaqiM1bGX4" },
   },
   {
     id: "sequences.lucas-companion",
     published: true,
-    category: "History & sequences",
+    category: "Sequences",
     name: "Lucas numbers: Fibonacci’s companion",
     description: "The same recurrence as Fibonacci, with different seeds and the same golden-ratio growth.",
     keywords: ["lucas", "fibonacci", "golden ratio", "recurrence", "a000032"],
@@ -145,7 +128,7 @@ export const exampleCatalog = [
   {
     id: "sequences.pell-silver-ratio",
     published: true,
-    category: "History & sequences",
+    category: "Sequences",
     name: "Pell numbers and the silver ratio",
     description: "A recurrence whose successive-term ratios converge to the silver ratio 1 + √2.",
     keywords: ["pell", "silver ratio", "metallic means", "recurrence", "a000129"],
@@ -163,7 +146,7 @@ export const exampleCatalog = [
   {
     id: "sequences.tribonacci",
     published: true,
-    category: "History & sequences",
+    category: "Sequences",
     name: "Tribonacci: a three-term recurrence",
     description: "A Fibonacci generalization in which each term sums the preceding three.",
     keywords: ["tribonacci", "n-bonacci", "recurrence", "a000073"],
@@ -181,7 +164,7 @@ export const exampleCatalog = [
   {
     id: "sequences.padovan-plastic",
     published: true,
-    category: "History & sequences",
+    category: "Sequences",
     name: "Padovan numbers and the plastic constant",
     description: "A delayed recurrence whose growth is controlled by the plastic constant.",
     keywords: ["padovan", "plastic constant", "recurrence", "a000931"],
@@ -199,7 +182,7 @@ export const exampleCatalog = [
   {
     id: "draft.golden-ratio-companions",
     published: false,
-    category: "History & sequences",
+    category: "Sequences",
     name: "Golden-ratio companion sequences",
     description: "Research lead for Lucas, Pell, and related recurrences.",
     keywords: ["golden ratio", "lucas", "pell", "recurrence", "n-bonacci"],
@@ -211,7 +194,7 @@ export const exampleCatalog = [
   {
     id: "draft.n-bonacci-families",
     published: false,
-    category: "History & sequences",
+    category: "Sequences",
     name: "n-bonacci families",
     description: "Research lead for tribonacci and higher-order recurrences.",
     keywords: ["tribonacci", "tetranacci", "n-bonacci", "recurrence"],
@@ -254,6 +237,7 @@ export function filterExampleCatalog(query, category = "All") {
     const searchable = normalize([
       entry.id, entry.category, entry.name, entry.description, ...entry.keywords,
       ...entry.references.flatMap((reference) => Object.values(reference)),
+      ...Object.values(entry.video ?? {}),
       ...entry.details.overview, ...entry.details.steps,
     ].join(" "));
     return terms.every((term) => searchable.includes(term));
@@ -275,6 +259,7 @@ export function validatePublishedExamples() {
   for (const entry of publishedExamples) {
     if (!entry.name || !entry.description || !entry.category) throw new Error(`${entry.id} is missing display metadata`);
     if (!entry.references.length) throw new Error(`${entry.id} needs a reference`);
+    if (entry.video && (!entry.video.title || !entry.video.url)) throw new Error(`${entry.id} has an invalid video`);
     if (entry.verification.status !== "verified" || !entry.verification.fixture) throw new Error(`${entry.id} needs a verification fixture`);
     validateNotebook(entry.notebook);
   }
