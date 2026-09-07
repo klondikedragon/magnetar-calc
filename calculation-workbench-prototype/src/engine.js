@@ -3,8 +3,9 @@
 import BreakDecimal from "break_eternity.js";
 import Decimal from "decimal.js";
 import { astToExpression, parseExpression, tokenizeExpression } from "./expressionLanguage.js";
-import { deserializeExactValue, exactParts, isExactValue, serializeExactValue, tryEvaluateExact } from "./exactValues.js";
+import { deserializeExactValue, exactInteger, exactParts, isExactValue, serializeExactValue, tryEvaluateExact } from "./exactValues.js";
 import {
+  createStructuralPower,
   deserializeStructuralValue,
   formatStructuralPower,
   isStructuralPower,
@@ -731,6 +732,29 @@ function tryReduceSteinhaus(base, nesting, sides, options) {
   const sideCount = Number(sides.value);
   if (sideCount === 3 && base <= 300n) return decimalEngine.evaluate(`${base}^${base}`, new Map(), options);
   if (sideCount === 4 && base === 2n) return decimalEngine.evaluate("256", new Map(), options);
+  // For larger triangles, retain the direct n^n construction rather than
+  // collapsing the entire polygon into an opaque token. This exposes the
+  // same exact digit formulae and bounded estimates as an ordinary power.
+  if (sideCount === 3) {
+    return createStructuralPower(exactInteger(base), exactInteger(base), {
+      reduction: {
+        notation: `△${base}`,
+        derivation: `△${base} = ${base}^${base}`,
+      },
+    });
+  }
+  // □3 is three nested triangle operations:
+  // △3 = 27; △27 = 27^27 = 3^81; △(3^81) = 3^(3^85).
+  // The final exponent is exact but the resulting integer is deliberately
+  // retained as a power, so its magnitude dossier stays available.
+  if (sideCount === 4 && base === 3n) {
+    return createStructuralPower(exactInteger(3n), exactInteger(3n ** 85n), {
+      reduction: {
+        notation: "□3",
+        derivation: "□3 = △(△(△3)) = (27^27)^(27^27) = 3^(3^85)",
+      },
+    });
+  }
   return null;
 }
 
@@ -1052,7 +1076,7 @@ export function inspectAutomatically(value, options = {}) {
     exactness: "symbolic exact",
     precision: "not expanded",
     canonical: value.canonical,
-    derivation: "Preserved before numeric expansion would exceed the exact engine boundary.",
+    derivation: value.reduction?.derivation ?? "Preserved before numeric expansion would exceed the exact engine boundary.",
     facts: structuralPowerFacts(value, options.base ?? 10),
     provenance: structuralPowerProvenance(value, options.base ?? 10),
   };

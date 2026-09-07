@@ -1,6 +1,7 @@
 import Decimal from "decimal.js";
 import {
   deserializeExactValue,
+  exactInteger,
   exactParts,
   isExactValue,
   serializeExactValue,
@@ -76,6 +77,16 @@ export const structuralPowerRules = Object.freeze({
       url: "https://dlmf.nist.gov/4.8",
     }],
   }),
+  "steinhaus.polygon-reduction": Object.freeze({
+    id: "steinhaus.polygon-reduction",
+    title: "Steinhaus–Moser polygon reduction",
+    description: "A triangle represents n^n; a square represents n nested triangle operations. This rule records a finite, algebraically expanded instance without materializing its decimal digits.",
+    sources: [{
+      id: "mathworld-steinhaus-moser",
+      title: "Wolfram MathWorld: Steinhaus-Moser Notation",
+      url: "https://mathworld.wolfram.com/Steinhaus-MoserNotation.html",
+    }],
+  }),
 });
 
 function freeze(value) { return Object.freeze(value); }
@@ -105,8 +116,23 @@ function structuralOperandText(value) {
   return isStructuralPower(value) ? `(${structuralText(value)})` : structuralText(value);
 }
 
-function makePower(base, exponent) {
+function makePower(base, exponent, context = {}) {
   const canonical = `${structuralOperandText(base)}^${structuralOperandText(exponent)}`;
+  const reduction = context.reduction ? freeze({ ...context.reduction }) : null;
+  const provenance = [freeze({
+    ruleId: "power.structural-preservation",
+    certainty: "structural",
+    inputs: freeze({ base: structuralText(base), exponent: structuralText(exponent) }),
+    conditions: "positive exact integer base greater than one and positive exact-integer or structural exponent",
+  })];
+  if (reduction) {
+    provenance.push(freeze({
+      ruleId: "steinhaus.polygon-reduction",
+      certainty: "structural",
+      inputs: freeze({ construction: reduction.notation, derivation: reduction.derivation }),
+      conditions: "a finite Steinhaus–Moser construction with the displayed algebraic reduction",
+    }));
+  }
   return freeze({
     kind: "structural-power",
     base,
@@ -116,13 +142,21 @@ function makePower(base, exponent) {
     engineId: "structural-power",
     engineLabel: "Exact structure · powers",
     quality: freeze({ certainty: "symbolic-exact", representation: "power form", retainedDigits: "not expanded" }),
-    provenance: freeze([freeze({
-      ruleId: "power.structural-preservation",
-      certainty: "structural",
-      inputs: freeze({ base: structuralText(base), exponent: structuralText(exponent) }),
-      conditions: "positive exact integer base greater than one and positive exact-integer or structural exponent",
-    })]),
+    ...(reduction ? { reduction } : {}),
+    provenance: freeze(provenance),
   });
+}
+
+// A trusted producer for structural powers whose operands are already known
+// exact integers. It is intentionally narrow: callers cannot invent a power
+// of an inexact value merely to obtain a more attractive display.
+export function createStructuralPower(base, exponent, context = {}) {
+  const exactBase = isExactValue(base) ? base : exactInteger(base);
+  const exactExponent = isExactValue(exponent) ? exponent : exactInteger(exponent);
+  if (!positiveExactInteger(exactBase) || !positiveExactInteger(exactExponent)) {
+    throw new Error("structural powers require positive exact integers");
+  }
+  return makePower(exactBase, exactExponent, context);
 }
 
 function structuralOperandFromAst(ast, references) {
@@ -160,7 +194,7 @@ export function deserializeStructuralValue(value) {
     if (part?.kind === "exact-integer" || part?.kind === "exact-rational") return deserializeExactValue(part);
     return deserializeStructuralValue(part);
   };
-  return makePower(restore(value.base), restore(value.exponent));
+  return makePower(restore(value.base), restore(value.exponent), { reduction: value.reduction });
 }
 
 export function formatStructuralPower(value) {
@@ -239,14 +273,25 @@ function integerBase(value) {
 
 export function structuralPowerFacts(value, displayBase = 10) {
   if (!isStructuralPower(value)) return [];
-  const facts = [{
+  const facts = [];
+  if (value.reduction) {
+    facts.push({
+      id: "steinhaus-reduction",
+      label: "Steinhaus–Moser reduction",
+      value: value.reduction.derivation,
+      certainty: "structural exact",
+      ruleId: "steinhaus.polygon-reduction",
+      detail: `The polygon construction ${value.reduction.notation} has been reduced with the defining finite iteration rule; the resulting power remains unexpanded.`,
+    });
+  }
+  facts.push({
     id: "canonical-power",
     label: "canonical form",
     value: value.canonical,
     certainty: "structural exact",
     ruleId: "power.structural-preservation",
     detail: "The exact power construction is preserved; it has not been expanded into digits.",
-  }];
+  });
   const base = integerBase(value.base);
   const exponentText = structuralText(value.exponent);
   if (!base) return facts;

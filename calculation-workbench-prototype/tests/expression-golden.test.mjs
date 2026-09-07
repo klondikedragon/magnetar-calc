@@ -88,7 +88,10 @@ test("keeps Steinhaus–Moser constructions structural beyond the exact frontier
   assert.equal(mega.name, "Mega");
   assert.equal(mega.canonical, "SM(2; 1; 5)");
   assert.equal(moser.canonical, "SM(2; 1; Mega)");
-  assert.equal(square.short, "□3");
+  assert.equal(square.kind, "structural-power");
+  assert.equal(square.quality.certainty, "symbolic-exact");
+  assert.equal(square.reduction.notation, "□3");
+  assert.match(square.reduction.derivation, /\(27\^27\)\^\(27\^27\)/);
   assert.equal(evaluateAutomatically("sm_circle(2)").name, "Mega");
   assert.equal(evaluateAutomatically("sm_megagon(2)").name, "Moser");
   assert.equal(formatAutomatically(mega).canonical, "SM(2; 1; 5)");
