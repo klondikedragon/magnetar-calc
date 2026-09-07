@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendHistoryEntry, invalidateAfterHistoryDeletion, workerReferencesForEntry } from "../src/historyLedger.js";
+import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryWork, transitionHistoryEntry, workerReferencesForEntry } from "../src/historyLedger.js";
 
 const complete = (id, expression, value) => ({ id, expression, value, state: "completed", ordinal: id, references: [], usesSequencePosition: false, error: null });
 
@@ -22,4 +22,15 @@ test("deletion dirties dynamic sequence entries and their dependants", () => {
   const next = invalidateAfterHistoryDeletion(history, 2);
   assert.equal(next.find((entry) => entry.id === 3).state, "dirty");
   assert.equal(next.find((entry) => entry.id === 4).state, "dirty");
+});
+
+test("schedules only the oldest ready entry and rejects a stale job revision", () => {
+  let history = appendHistoryEntry([], { id: 1, expression: "yellowstone(@n)" });
+  history = appendHistoryEntry(history, { id: 2, expression: "yellowstone(@n)" });
+  const first = nextHistoryWork(history);
+  assert.equal(first.kind, "ready");
+  assert.equal(first.entry.id, 1);
+  const computing = transitionHistoryEntry(history, 1, 1, { state: "computing" });
+  const stale = transitionHistoryEntry(computing, 1, 2, { state: "completed", value: "incorrect" });
+  assert.equal(stale.find((entry) => entry.id === 1).state, "computing");
 });

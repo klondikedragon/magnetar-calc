@@ -37,7 +37,7 @@ export function describeHistoryEntry(history, entry) {
 export function appendHistoryEntry(history, entry) {
   const described = describeHistoryEntry(history, entry);
   return [
-    { ...described, state: described.blockedReason ? "blocked" : "queued", value: null, error: described.blockedReason },
+    { ...described, revision: 1, state: described.blockedReason ? "blocked" : "queued", value: null, error: described.blockedReason },
     ...history,
   ];
 }
@@ -47,7 +47,7 @@ export function rebuildHistoryLedger(history) {
   const rebuiltChronological = [];
   for (const entry of chronological) {
     const described = describeHistoryEntry(rebuiltChronological.slice().reverse(), entry);
-    rebuiltChronological.push({ ...described, state: entry.state ?? "completed", error: entry.error ?? described.blockedReason ?? null });
+    rebuiltChronological.push({ ...described, revision: entry.revision ?? 1, state: entry.state ?? "completed", error: entry.error ?? described.blockedReason ?? null });
   }
   return rebuiltChronological.reverse();
 }
@@ -69,6 +69,21 @@ export function workerReferencesForEntry(history, entry) {
   };
 }
 
+// The scheduler is deliberately pure: it makes no worker or UI decisions.
+// It establishes the single legal next transition for the serial queue.
+export function nextHistoryWork(history) {
+  const entry = ordered(history).find((item) => item.state === "queued" || item.state === "dirty");
+  if (!entry) return { kind: "empty" };
+  const payload = workerReferencesForEntry(history, entry);
+  if (payload.waiting) return { kind: "waiting", entry };
+  if (payload.blocked) return { kind: "blocked", entry, error: payload.blocked };
+  return { kind: "ready", entry, references: payload.references };
+}
+
+export function transitionHistoryEntry(history, id, revision, update) {
+  return history.map((entry) => entry.id === id && entry.revision === revision ? { ...entry, ...update } : entry);
+}
+
 export function invalidateAfterHistoryDeletion(history, deletedId) {
   const prior = new Map(history.map((entry) => [entry.id, entry]));
   const remaining = history.filter((entry) => entry.id !== deletedId);
@@ -82,7 +97,8 @@ export function invalidateAfterHistoryDeletion(history, deletedId) {
       || (previous?.usesSequencePosition && previous.ordinal !== rebuilt.ordinal);
     const dependsOnDirty = rebuilt.references.some((reference) => reference.targetId !== null && dirty.has(reference.targetId));
     const state = rebuilt.blockedReason ? "blocked" : (dependencyChanged || dependsOnDirty ? "dirty" : entry.state);
-    const next = { ...rebuilt, state, value: state === "dirty" || state === "blocked" ? null : entry.value, error: rebuilt.blockedReason ?? (state === "dirty" ? null : entry.error) };
+    const changed = state === "dirty" || state === "blocked";
+    const next = { ...rebuilt, revision: changed ? (entry.revision ?? 1) + 1 : (entry.revision ?? 1), state, value: changed ? null : entry.value, error: rebuilt.blockedReason ?? (state === "dirty" ? null : entry.error) };
     if (state === "dirty" || state === "blocked") dirty.add(next.id);
     rebuiltChronological.push(next);
   }

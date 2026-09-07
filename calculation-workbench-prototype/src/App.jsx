@@ -5,7 +5,8 @@ import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, export
 import { createNotebook, validateNotebook } from "./notebook";
 import { exampleCategories, filterExampleCatalog, sortExampleCatalog } from "./exampleCatalog";
 import { filterFunctionCatalog, functionCategories, functionInsertion } from "./functionCatalog";
-import { appendHistoryEntry, invalidateAfterHistoryDeletion, rebuildHistoryLedger, workerReferencesForEntry } from "./historyLedger";
+import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryWork, rebuildHistoryLedger, transitionHistoryEntry } from "./historyLedger";
+import { createHistoryQueueDiagnostics } from "./historyQueueDiagnostics";
 
 const HistoryChartDialog = lazy(() => import("./HistoryChartDialog"));
 
@@ -140,6 +141,7 @@ export function App() {
   const historyQueueWorkerRef = useRef(null);
   const historyQueueBusyRef = useRef(false);
   const historyQueueJobRef = useRef(0);
+  const historyQueueDiagnosticsRef = useRef(createHistoryQueueDiagnostics());
   const historyRef = useRef(history);
   const nextIdRef = useRef(nextId);
   const exportWorkerRef = useRef(null);
@@ -153,6 +155,12 @@ export function App() {
   const completedExpressionRef = useRef("");
   const completedReferenceKeyRef = useRef("");
   const copyFeedbackTimerRef = useRef(null);
+  const traceHistoryQueue = (event) => {
+    if (!import.meta.env.DEV) return;
+    const trace = historyQueueDiagnosticsRef.current;
+    trace.record({ ...event, queueLength: historyRef.current.filter((item) => item.state !== "completed").length });
+    window.__elephantHistoryQueueTrace = trace.snapshot();
+  };
   const focusExpression = () => requestAnimationFrame(() => expressionRef.current?.focus());
   function sizeExpression(input = expressionRef.current) {
     if (!input) return;
@@ -266,11 +274,12 @@ export function App() {
     return () => clearTimeout(timer);
   }, [calculation.status]);
 
-  function finishHistoryQueueItem(entryId, result) {
+  function finishHistoryQueueItem(entryId, revision, result) {
     if (result?.value) {
-      const nextHistory = historyRef.current.map((entry) => entry.id === entryId ? { ...entry, state: "completed", value: result.value, error: null } : entry);
+      const nextHistory = transitionHistoryEntry(historyRef.current, entryId, revision, { state: "completed", value: result.value, error: null });
       historyRef.current = nextHistory;
       setHistory(nextHistory);
+      traceHistoryQueue({ event: "committed", id: entryId, revision });
       setToast("Saved to History");
       setTimeout(() => setToast(""), 1500);
     }
@@ -278,46 +287,56 @@ export function App() {
 
   function processHistoryQueue() {
     if (historyQueueBusyRef.current) return;
-    const nextItem = [...historyRef.current].reverse().find((item) => item.state === "queued" || item.state === "dirty");
-    if (!nextItem) return;
-    const payload = workerReferencesForEntry(historyRef.current, nextItem);
-    if (payload.waiting) return;
-    if (payload.blocked) {
-      const nextHistory = historyRef.current.map((item) => item.id === nextItem.id ? { ...item, state: "blocked", value: null, error: payload.blocked } : item);
+    const work = nextHistoryWork(historyRef.current);
+    if (work.kind === "empty") return;
+    if (work.kind === "waiting") { traceHistoryQueue({ event: "waiting", id: work.entry.id, revision: work.entry.revision }); return; }
+    if (work.kind === "blocked") {
+      const nextHistory = transitionHistoryEntry(historyRef.current, work.entry.id, work.entry.revision, { state: "blocked", value: null, error: work.error });
       historyRef.current = nextHistory;
       setHistory(nextHistory);
+      traceHistoryQueue({ event: "blocked", id: work.entry.id, revision: work.entry.revision, error: work.error });
       queueMicrotask(processHistoryQueue);
       return;
     }
+    const nextItem = work.entry;
+    const revision = nextItem.revision;
     historyQueueBusyRef.current = true;
-    const computingHistory = historyRef.current.map((item) => item.id === nextItem.id ? { ...item, state: "computing", error: null } : item);
+    const computingHistory = transitionHistoryEntry(historyRef.current, nextItem.id, revision, { state: "computing", error: null });
     historyRef.current = computingHistory;
     setHistory(computingHistory);
     const worker = historyQueueWorkerRef.current ?? new Worker(new URL("./calculation-worker.js", import.meta.url), { type: "module" });
     historyQueueWorkerRef.current = worker;
     const jobId = ++historyQueueJobRef.current;
+    traceHistoryQueue({ event: "dispatched", id: nextItem.id, revision, jobId, referenceCount: work.references.length });
     const deadline = setTimeout(() => {
       if (historyQueueWorkerRef.current !== worker || jobId !== historyQueueJobRef.current) return;
       worker.terminate();
       historyQueueWorkerRef.current = null;
       historyQueueBusyRef.current = false;
-      const nextHistory = historyRef.current.map((item) => item.id === nextItem.id ? { ...item, state: "failed", value: null, error: "Time budget reached" } : item);
+      const nextHistory = transitionHistoryEntry(historyRef.current, nextItem.id, revision, { state: "failed", value: null, error: "Time budget reached" });
       historyRef.current = nextHistory;
       setHistory(nextHistory);
+      traceHistoryQueue({ event: "timed-out", id: nextItem.id, revision, jobId });
       queueMicrotask(processHistoryQueue);
     }, 10000);
     worker.onmessage = ({ data }) => {
       clearTimeout(deadline);
-      if (jobId !== historyQueueJobRef.current || historyQueueWorkerRef.current !== worker) return;
+      const current = historyRef.current.find((item) => item.id === nextItem.id);
+      if (jobId !== historyQueueJobRef.current || historyQueueWorkerRef.current !== worker || current?.revision !== revision || current.state !== "computing") {
+        traceHistoryQueue({ event: "discarded-stale-result", id: nextItem.id, revision, jobId });
+        return;
+      }
       historyQueueBusyRef.current = false;
       if (data.type === "error") {
-        const nextHistory = historyRef.current.map((item) => item.id === nextItem.id ? { ...item, state: "failed", value: null, error: calculationErrorMessage(data.message) } : item);
+        const error = calculationErrorMessage(data.message);
+        const nextHistory = transitionHistoryEntry(historyRef.current, nextItem.id, revision, { state: "failed", value: null, error });
         historyRef.current = nextHistory;
         setHistory(nextHistory);
+        traceHistoryQueue({ event: "failed", id: nextItem.id, revision, jobId, error });
         queueMicrotask(processHistoryQueue);
         return;
       }
-      finishHistoryQueueItem(nextItem.id, { expression: nextItem.expression, value: deserializeValue(data.value) });
+      finishHistoryQueueItem(nextItem.id, revision, { expression: nextItem.expression, value: deserializeValue(data.value) });
       queueMicrotask(processHistoryQueue);
     };
     worker.onerror = () => {
@@ -326,12 +345,13 @@ export function App() {
       historyQueueBusyRef.current = false;
       historyQueueWorkerRef.current?.terminate();
       historyQueueWorkerRef.current = null;
-      const nextHistory = historyRef.current.map((item) => item.id === nextItem.id ? { ...item, state: "failed", value: null, error: "Calculation failed" } : item);
+      const nextHistory = transitionHistoryEntry(historyRef.current, nextItem.id, revision, { state: "failed", value: null, error: "Calculation failed" });
       historyRef.current = nextHistory;
       setHistory(nextHistory);
+      traceHistoryQueue({ event: "worker-error", id: nextItem.id, revision, jobId });
       queueMicrotask(processHistoryQueue);
     };
-    worker.postMessage({ jobId, expression: nextItem.expression, references: payload.references.map(([token, value]) => [token, serializeValue(value)]), options: { precision } });
+    worker.postMessage({ jobId, expression: nextItem.expression, references: work.references.map(([token, value]) => [token, serializeValue(value)]), options: { precision } });
   }
 
   function commit() {
@@ -348,6 +368,7 @@ export function App() {
     const nextHistory = appendHistoryEntry(historyRef.current, { id, expression: source });
     historyRef.current = nextHistory;
     setHistory(nextHistory);
+    traceHistoryQueue({ event: "queued", id, revision: nextHistory[0].revision });
     processHistoryQueue();
   }
 
