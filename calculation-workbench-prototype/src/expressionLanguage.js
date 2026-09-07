@@ -116,6 +116,7 @@ export function tokenizeExpression(source) {
     tokens.push({ type, value, start, end });
     if (tokens.length > maximumTokenCount) throw new Error("expression is too complex");
   };
+  const parentheses = [];
   while (index < source.length) {
     const character = source[index];
     if (/\s/.test(character)) { index += 1; continue; }
@@ -128,6 +129,17 @@ export function tokenizeExpression(source) {
       continue;
     }
     if (/\d/.test(character)) {
+      const inFunctionArguments = parentheses.at(-1) === "call";
+      const integer = source.slice(index).match(/^\d[\d,]*/)?.[0] ?? "";
+      const hasComma = integer.includes(",");
+      if (hasComma && !inFunctionArguments) {
+        if (!/^\d{1,3}(?:,\d{3})+$/.test(integer)) throw new Error(`invalid digit grouping at character ${start + 1}`);
+        index += integer.length;
+        const suffix = source.slice(index).match(/^(?:\.\d*)?(?:e[+-]?\d+)?/i)?.[0] ?? "";
+        index += suffix.length;
+        push("number", `${integer.replaceAll(",", "")}${suffix}`, start, index);
+        continue;
+      }
       const match = source.slice(index).match(/^\d+(?:\.\d*)?(?:e[+-]?\d+)?/i);
       index += match[0].length;
       push("number", match[0], start, index);
@@ -145,6 +157,18 @@ export function tokenizeExpression(source) {
     if (character === "↑" || character === "^") {
       while (source[index] === character) index += 1;
       push("operator", source.slice(start, index), start, index);
+      continue;
+    }
+    if (character === "(") {
+      parentheses.push(tokens.at(-1)?.type === "identifier" ? "call" : "group");
+      index += 1;
+      push("symbol", character, start, index);
+      continue;
+    }
+    if (character === ")") {
+      parentheses.pop();
+      index += 1;
+      push("symbol", character, start, index);
       continue;
     }
     if ("(),+-*/%!×÷−πτφ√".includes(character)) {
