@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { evaluateAutomatically } from "../src/engine.js";
 import { exampleWorkbenches } from "../src/exampleWorkbenches.js";
-import { createNotebook, validateNotebook } from "../src/notebook.js";
+import { createNotebook, maximumNotebookHistoryEntries, validateNotebook } from "../src/notebook.js";
 
 const view = { base: 10, precision: 48, notation: "auto", groupDigits: true, activeMode: "Calculator" };
 
@@ -33,4 +33,19 @@ test("normalizes an unsafe or stale next History ID", () => {
   const base = { schemaVersion: 1, activeExpression: { expression: "1" }, history: [{ id: 7, expression: "1" }] };
   assert.equal(validateNotebook({ ...base, nextHistoryId: 4 }).nextId, 8);
   assert.equal(validateNotebook({ ...base, nextHistoryId: Number.MAX_SAFE_INTEGER + 1 }).nextId, 8);
+});
+
+test("expands a bounded repeat block into ordinary newest-first History entries", () => {
+  const notebook = validateNotebook({ schemaVersion: 1, activeExpression: { expression: "yellowstone(@n)" }, history: [{ repeat: { expression: "yellowstone(@n)", count: 3, startId: 7 } }], nextHistoryId: 10 });
+  assert.deepEqual(notebook.history, [
+    { id: 9, expression: "yellowstone(@n)" },
+    { id: 8, expression: "yellowstone(@n)" },
+    { id: 7, expression: "yellowstone(@n)" },
+  ]);
+});
+
+test("rejects oversized or malformed History repeat blocks", () => {
+  const base = { schemaVersion: 1, activeExpression: { expression: "1" } };
+  assert.throws(() => validateNotebook({ ...base, history: [{ repeat: { expression: "1", count: maximumNotebookHistoryEntries + 1, startId: 1 } }] }), /repeat entry is invalid/);
+  assert.throws(() => validateNotebook({ ...base, history: [{ repeat: { expression: "1", count: 3, startId: 2 } }, { id: 3, expression: "1" }] }), /History entry is invalid/);
 });

@@ -31,6 +31,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Display precision is a maximum significant-digit budget: trailing zeros are omitted. Auto notation uses compact plain decimals when readable; explicit scientific notation omits a positive exponent plus sign.
 - The active result and History both rerender from the selected notation and display precision.
 - History is displayed newest-first; seeded examples follow the same ordering, so `@history(1)` appears at the bottom.
+- Imported v1 notebooks may contain validated bounded History repeat blocks; materialize them to ordinary newest-first entries before dependency analysis. Exports always flatten History to ordinary entries.
 - Well-known constants are resolved by the active engine; Decimal.js computes π/e/τ at its configured calculation precision rather than using parser literals.
 - Memory exposes a visible hoverable indicator; invalid/incomplete expressions retain the last valid preview and show a subtle inline status.
 - Memory is an accumulated expression sequence: M+ appends and evaluates the current expression, MR recalls the full parenthesized expression, and the memory chip opens a detail overlay.

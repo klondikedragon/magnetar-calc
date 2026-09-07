@@ -12,6 +12,14 @@ expression-first notebook, and a named verification fixture.
 The notebook contains only expressions and History IDs. Importing always
 recalculates it; saved answers never establish truth.
 
+For compact externally authored notebooks, a v1 `history` array may also use a
+bounded repeat block: `{ "repeat": { "expression": "…", "count": 1000,
+"startId": 1 } }`. `startId` is the first chronological History ID; import
+expands the block into ordinary newest-first entries, validates every resulting
+ID and the shared 10,000-entry limit, then recomputes it normally. Exported
+notebooks intentionally remain explicit ordinary entries, so they are a stable
+record rather than a compact execution format.
+
 ## Recipe
 
 1. Start a draft record with `published: false` and identify an authoritative
