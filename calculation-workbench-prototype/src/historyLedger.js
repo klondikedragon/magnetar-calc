@@ -84,6 +84,13 @@ export function transitionHistoryEntry(history, id, revision, update) {
   return history.map((entry) => entry.id === id && entry.revision === revision ? { ...entry, ...update } : entry);
 }
 
+// A worker may be stopped by navigation or development refresh without sending
+// an error event. A computing entry is never terminal in that case: place it
+// back in the serial queue so it can receive a fresh worker job.
+export function recoverOrphanedHistoryWork(history) {
+  return history.map((entry) => entry.state === "computing" ? { ...entry, state: "queued", error: null } : entry);
+}
+
 export function invalidateAfterHistoryDeletion(history, deletedId) {
   const prior = new Map(history.map((entry) => [entry.id, entry]));
   const remaining = history.filter((entry) => entry.id !== deletedId);

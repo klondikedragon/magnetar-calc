@@ -5,7 +5,7 @@ import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, export
 import { createNotebook, validateNotebook } from "./notebook";
 import { exampleCategories, filterExampleCatalog, sortExampleCatalog } from "./exampleCatalog";
 import { filterFunctionCatalog, functionCategories, functionInsertion } from "./functionCatalog";
-import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryWork, rebuildHistoryLedger, transitionHistoryEntry } from "./historyLedger";
+import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryWork, rebuildHistoryLedger, recoverOrphanedHistoryWork, transitionHistoryEntry } from "./historyLedger";
 import { createHistoryQueueDiagnostics } from "./historyQueueDiagnostics";
 import { createCoalescedPersistence } from "./coalescedPersistence";
 
@@ -142,6 +142,7 @@ export function App() {
   const historyQueueWorkerRef = useRef(null);
   const historyQueueBusyRef = useRef(false);
   const historyQueueJobRef = useRef(0);
+  const historyQueueRunRef = useRef(null);
   const historyQueueDiagnosticsRef = useRef(createHistoryQueueDiagnostics());
   const historyRef = useRef(history);
   const nextIdRef = useRef(nextId);
@@ -285,7 +286,25 @@ export function App() {
       if (workerBusyRef.current) { workerRef.current?.terminate(); workerRef.current = null; workerBusyRef.current = false; }
     };
   }, [expression, precision, workerReferences]);
-  useEffect(() => () => { workerRef.current?.terminate(); historyQueueWorkerRef.current?.terminate(); exportWorkerRef.current?.terminate(); notebookOperationRef.current?.worker?.terminate(); }, []);
+  useEffect(() => {
+    const recovered = recoverOrphanedHistoryWork(historyRef.current);
+    if (recovered.some((entry, index) => entry !== historyRef.current[index])) {
+      historyRef.current = recovered;
+      setHistory(recovered);
+      queueMicrotask(processHistoryQueue);
+    }
+    return () => {
+      const run = historyQueueRunRef.current;
+      if (run) clearTimeout(run.deadline);
+      historyQueueWorkerRef.current?.terminate();
+      historyQueueWorkerRef.current = null;
+      historyQueueRunRef.current = null;
+      historyQueueBusyRef.current = false;
+      workerRef.current?.terminate();
+      exportWorkerRef.current?.terminate();
+      notebookOperationRef.current?.worker?.terminate();
+    };
+  }, []);
   useEffect(() => {
     if (!["debouncing", "computing"].includes(calculation.status)) { setShowCalculating(false); return undefined; }
     const timer = setTimeout(() => setShowCalculating(true), 300);
@@ -301,6 +320,28 @@ export function App() {
       setToast("Saved to History");
       setTimeout(() => setToast(""), 1500);
     }
+  }
+
+  function releaseHistoryQueueRun(run, { terminate = false } = {}) {
+    if (!run || historyQueueRunRef.current !== run) return false;
+    clearTimeout(run.deadline);
+    if (terminate) {
+      run.worker.terminate();
+      if (historyQueueWorkerRef.current === run.worker) historyQueueWorkerRef.current = null;
+    }
+    historyQueueRunRef.current = null;
+    historyQueueBusyRef.current = false;
+    return true;
+  }
+
+  function requeueHistoryRun(run, reason) {
+    if (!releaseHistoryQueueRun(run, { terminate: true })) return false;
+    const nextHistory = transitionHistoryEntry(historyRef.current, run.entryId, run.revision, { state: "queued", error: null });
+    historyRef.current = nextHistory;
+    setHistory(nextHistory);
+    traceHistoryQueue({ event: "requeued-orphan", id: run.entryId, revision: run.revision, jobId: run.jobId, reason });
+    queueMicrotask(processHistoryQueue);
+    return true;
   }
 
   function processHistoryQueue() {
@@ -326,11 +367,10 @@ export function App() {
     historyQueueWorkerRef.current = worker;
     const jobId = ++historyQueueJobRef.current;
     traceHistoryQueue({ event: "dispatched", id: nextItem.id, revision, jobId, referenceCount: work.references.length });
-    const deadline = setTimeout(() => {
-      if (historyQueueWorkerRef.current !== worker || jobId !== historyQueueJobRef.current) return;
-      worker.terminate();
-      historyQueueWorkerRef.current = null;
-      historyQueueBusyRef.current = false;
+    const run = { worker, jobId, entryId: nextItem.id, revision, deadline: null };
+    historyQueueRunRef.current = run;
+    run.deadline = setTimeout(() => {
+      if (!releaseHistoryQueueRun(run, { terminate: true })) return;
       const nextHistory = transitionHistoryEntry(historyRef.current, nextItem.id, revision, { state: "failed", value: null, error: "Time budget reached" });
       historyRef.current = nextHistory;
       setHistory(nextHistory);
@@ -338,13 +378,13 @@ export function App() {
       queueMicrotask(processHistoryQueue);
     }, 10000);
     worker.onmessage = ({ data }) => {
-      clearTimeout(deadline);
       const current = historyRef.current.find((item) => item.id === nextItem.id);
-      if (jobId !== historyQueueJobRef.current || historyQueueWorkerRef.current !== worker || current?.revision !== revision || current.state !== "computing") {
+      if (historyQueueRunRef.current !== run || jobId !== historyQueueJobRef.current || historyQueueWorkerRef.current !== worker || current?.revision !== revision || current?.state !== "computing") {
         traceHistoryQueue({ event: "discarded-stale-result", id: nextItem.id, revision, jobId });
+        requeueHistoryRun(run, "stale worker result");
         return;
       }
-      historyQueueBusyRef.current = false;
+      releaseHistoryQueueRun(run);
       if (data.type === "error") {
         const error = calculationErrorMessage(data.message);
         const nextHistory = transitionHistoryEntry(historyRef.current, nextItem.id, revision, { state: "failed", value: null, error });
@@ -358,17 +398,14 @@ export function App() {
       queueMicrotask(processHistoryQueue);
     };
     worker.onerror = () => {
-      clearTimeout(deadline);
-      if (jobId !== historyQueueJobRef.current) return;
-      historyQueueBusyRef.current = false;
-      historyQueueWorkerRef.current?.terminate();
-      historyQueueWorkerRef.current = null;
+      if (!releaseHistoryQueueRun(run, { terminate: true })) return;
       const nextHistory = transitionHistoryEntry(historyRef.current, nextItem.id, revision, { state: "failed", value: null, error: "Calculation failed" });
       historyRef.current = nextHistory;
       setHistory(nextHistory);
       traceHistoryQueue({ event: "worker-error", id: nextItem.id, revision, jobId });
       queueMicrotask(processHistoryQueue);
     };
+    worker.onmessageerror = () => requeueHistoryRun(run, "worker message could not be read");
     worker.postMessage({ jobId, expression: nextItem.expression, references: work.references.map(([token, value]) => [token, serializeValue(value)]), options: { precision } });
   }
 
@@ -402,6 +439,7 @@ export function App() {
 
   function cancelHistoryQueue() {
     historyQueueJobRef.current += 1;
+    releaseHistoryQueueRun(historyQueueRunRef.current, { terminate: true });
     historyQueueWorkerRef.current?.terminate();
     historyQueueWorkerRef.current = null;
     historyQueueBusyRef.current = false;
@@ -416,6 +454,7 @@ export function App() {
     // A deletion changes relative-reference semantics, so no in-flight result
     // may publish against the old ledger snapshot.
     historyQueueJobRef.current += 1;
+    releaseHistoryQueueRun(historyQueueRunRef.current, { terminate: true });
     historyQueueWorkerRef.current?.terminate();
     historyQueueWorkerRef.current = null;
     historyQueueBusyRef.current = false;
@@ -972,6 +1011,7 @@ export function App() {
   };
   const FullInfoDetails = ({ value, data, digits, sourceExpression }) => <section className="full-info-details"><div className="full-info-summary"><InspectorCopyValue label="engine" text={data.engine ?? value.engineLabel ?? "placeholder"} /><InspectorCopyValue label="representation" text={data.representation ?? "native"} /><InspectorCopyValue label="precision" text={data.precision ?? `${precisionLabel} digits`} /><InspectorCopyValue label="status" text={data.precisionLost ? "magnitude-only" : data.exactness ?? "approximate"} />{value.exactInteger && <InspectorCopyValue label="integer" text="exact" />}{primalityLabel(value) && <InspectorCopyValue label="primality" text={`${primalityLabel(value)}${value.primality?.method ? ` · ${value.primality.method}` : ""}`} />}{digits?.value && <InspectorCopyValue label={`base-${base} digits`} text={`${formatDigitCountForInspector(digits, { groupDigits })} · ${digits.certainty}`} />}</div>{data.canonical && <section className="full-info-structural"><p>STRUCTURAL FORM</p><InspectorCopyValue className="wide-value" label="canonical form" text={data.canonical} />{data.derivation && <InspectorCopyValue className="wide-value" label="derivation" text={data.derivation} />}</section>}{data.facts?.length > 0 && <section className="magnitude-dossier" aria-label="Magnitude dossier"><p>MAGNITUDE DOSSIER</p>{data.facts.map((fact) => <button className="magnitude-fact" key={fact.id} onClick={() => copyText(fact.value, fact.label)} title={`Copy ${fact.label}: ${fact.value}`}><span>{fact.label}</span><b>{fact.value}</b><small>{fact.certainty}</small></button>)}</section>}<div className="full-info-actions"><button onClick={() => copyDisplayed(value)} title={value?.kind === "steinhaus-moser" || value?.kind === "structural-power" || value?.kind === "extended-scale" ? "Copy the canonical construction syntax" : "Copy the result in the current display format"}>Copy result</button>{value?.kind !== "steinhaus-moser" && value?.kind !== "structural-power" && value?.kind !== "extended-scale" && <button onClick={() => exportHighPrecision(sourceExpression)} disabled={Boolean(exportWorkerRef.current)} title="Recalculate this expression with up to 10,000,000 significant digits, then copy it">Copy (10M digits)</button>}{data.provenance?.length > 0 && <button aria-expanded={provenanceOpen} onClick={() => setProvenanceOpen((open) => !open)} title="Show the rules, assumptions, evidence, and references behind these facts">Provenance</button>}</div>{provenanceOpen && data.provenance?.length > 0 && <section className="provenance-panel" aria-label="Calculation provenance"><p>CALCULATION PROVENANCE</p>{data.provenance.map((claim) => <article className="provenance-claim" key={claim.claim}><header><button className="provenance-claim-copy" onClick={() => copyText(claim.claim, "Claim")} title={`Copy claim: ${claim.claim}`}>{claim.claim}</button><small>{claim.certainty}</small></header><button className="provenance-rule-copy" onClick={() => copyText(claim.rule, "Rule")} title={`Copy rule: ${claim.rule}`}>{claim.rule}</button><button className="provenance-approach-copy" onClick={() => copyText(claim.approach, "Approach")} title="Copy evidence approach">{claim.approach}</button><div className="provenance-inputs"><span>Inputs</span><button onClick={() => copyText(claim.inputs.base, "Base")} title="Copy base">base {claim.inputs.base}</button><button onClick={() => copyText(claim.inputs.exponent, "Exponent")} title="Copy exponent">exponent {claim.inputs.exponent}</button></div><div className="provenance-sources">{claim.sources.map((source) => <a key={source.id} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</div></article>)}</section>}</section>;
   const InspectionDetails = ({ value, data, digits, sourceExpression }) => <div className="inspector inspection-details"><div><span>engine</span><b>{data.engine ?? value.engineLabel ?? "placeholder"}</b></div><div><span>representation</span><b>{data.representation ?? "native"}</b></div><div><span>precision</span><b>{data.precision ?? `${precisionLabel} digits`}</b></div><div><span>status</span><b>{data.precisionLost ? "magnitude-only" : data.exactness ?? "approximate"}</b></div>{data.canonical && <div className="structural-detail"><span>canonical form</span><b>{data.canonical}</b><small>{data.derivation}</small></div>}{value.exactInteger && <div><span>integer</span><b>exact</b></div>}{primalityLabel(value) && <div><span>primality</span><b>{primalityLabel(value)}{value.primality?.method && <small> · {value.primality.method}</small>}</b></div>}{digits?.value && <div className="digit-count"><span>base-{base} digits</span><b>{formatDigitCountForInspector(digits, { groupDigits })}</b><small>{digits.certainty}</small></div>}{data.facts?.length > 0 && <section className="magnitude-dossier" aria-label="Magnitude dossier"><p>MAGNITUDE DOSSIER</p>{data.facts.map((fact) => <div className="magnitude-fact" key={fact.id}><span>{fact.label}</span><b>{fact.value}</b><small>{fact.certainty}</small></div>)}</section>}<div className="inspector-actions"><button onClick={() => copyDisplayed(value)} title={value?.kind === "steinhaus-moser" || value?.kind === "structural-power" ? "Copy the canonical construction syntax" : "Copy the result in the current display format"}>Copy</button>{value?.kind !== "steinhaus-moser" && value?.kind !== "structural-power" && <button onClick={() => exportHighPrecision(sourceExpression)} disabled={Boolean(exportWorkerRef.current)} title="Recalculate this expression with up to 10,000,000 significant digits, then copy it">Copy (10M digits)</button>}{data.provenance?.length > 0 && <button aria-expanded={provenanceOpen} onClick={() => setProvenanceOpen((open) => !open)} title="Show the rules, assumptions, evidence, and references behind these facts">Provenance</button>}</div>{provenanceOpen && data.provenance?.length > 0 && <section className="provenance-panel" aria-label="Calculation provenance"><p>CALCULATION PROVENANCE</p>{data.provenance.map((claim) => <article className="provenance-claim" key={claim.claim}><header><b>{claim.claim}</b><small>{claim.certainty}</small></header><span>{claim.rule}</span><p>{claim.approach}</p><small>Inputs: base {claim.inputs.base}; exponent {claim.inputs.exponent}</small><div className="provenance-sources">{claim.sources.map((source) => <a key={source.id} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</div></article>)}</section>}</div>;
+  const HistoryExpression = ({ item, queued = false }) => <p className="history-expression selectable-text" aria-label={`${queued ? "Queued " : ""}History expression: ${item.expression}`}>{item.expression}{(item.usesSequencePosition || item.expression.includes("@n")) && <span className="history-position-badge" aria-label={`At this History position, @n equals ${item.ordinal}`}>n = {item.ordinal}</span>}</p>;
   function recallMemory() { if (memory?.expression) { updatePreview(`${expression}${expression ? " " : ""}(${memory.expression})`); requestAnimationFrame(() => expressionRef.current?.focus()); setMemoryOpen(false); } }
   return <main className="app-shell">
     <section className={`workbench ${expressionLines >= 5 ? "expression-tall" : ""}`}>
@@ -1015,7 +1055,7 @@ export function App() {
               <div className="history-queue-heading"><span>{pendingHistory.some((item) => item.state === "computing") ? "Computing History queue" : pendingHistory.some((item) => item.state === "failed" || item.state === "blocked") ? "History queue needs attention" : "History queue"}</span><button onClick={cancelHistoryQueue}>Cancel queue</button></div>
               {pendingHistory.slice().reverse().map((item) => <article className={`history-item history-pending ${item.state}`} key={`queue-${item.id}`}>
                 <div className="history-top"><span className="history-id">@history({item.id}) · {item.state === "computing" ? "◌ Computing" : item.state === "failed" || item.state === "blocked" ? "! Not calculated" : item.state === "dirty" ? "↻ Needs update" : "○ Queued"}</span></div>
-                <p className="history-expression selectable-text" aria-label={`Queued History expression: ${item.expression}`}>{item.expression}</p>
+                <HistoryExpression item={item} queued />
                 <p className="history-pending-status">{item.state === "failed" || item.state === "blocked" ? item.error : item.state === "computing" ? "Resolving its required History values…" : item.state === "dirty" ? "Waiting to recompute after a History change…" : "Waiting for earlier History calculations…"}</p>
               </article>)}
             </section>}
@@ -1032,7 +1072,7 @@ export function App() {
                     <button className="delete-history" aria-label={`Delete History item ${item.id}`} title={`Delete @history(${item.id})`} onClick={() => deleteHistoryEntry(item.id)}>×</button>
                   </span>
                 </div>
-                <p className="history-expression selectable-text" aria-label={`History expression: ${item.expression}`}>{item.expression}</p>
+                <HistoryExpression item={item} />
                 <button className="history-result selectable-output" aria-label={resultLabel(itemResult, "Copy History result")} title={`${itemTooltip} · click to copy`} onClick={() => copyResult(item.value, `history:${item.id}`)}>{renderResultContent(itemResult)}<CopyFeedback target={`history:${item.id}`} />{item.value.primality?.kind === "prime" && <span className={`prime-badge ${item.value.primality.certainty}`} title={itemPrimality === "prime" ? "Verified prime" : "Probable prime"} aria-label={itemPrimality === "prime" ? "Verified prime" : "Probable prime"}>P{item.value.primality.certainty === "probable" ? "?" : ""}</span>}</button>
               </article>;
             })}

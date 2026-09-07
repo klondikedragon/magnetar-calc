@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryWork, transitionHistoryEntry, workerReferencesForEntry } from "../src/historyLedger.js";
+import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryWork, recoverOrphanedHistoryWork, transitionHistoryEntry, workerReferencesForEntry } from "../src/historyLedger.js";
 
 const complete = (id, expression, value) => ({ id, expression, value, state: "completed", ordinal: id, references: [], usesSequencePosition: false, error: null });
 
@@ -33,4 +33,11 @@ test("schedules only the oldest ready entry and rejects a stale job revision", (
   const computing = transitionHistoryEntry(history, 1, 1, { state: "computing" });
   const stale = transitionHistoryEntry(computing, 1, 2, { state: "completed", value: "incorrect" });
   assert.equal(stale.find((entry) => entry.id === 1).state, "computing");
+});
+
+test("returns orphaned computing work to the serial queue", () => {
+  const history = [complete(2, "2", "2"), { ...complete(1, "1", "1"), state: "computing" }];
+  const recovered = recoverOrphanedHistoryWork(history);
+  assert.equal(recovered.find((entry) => entry.id === 1).state, "queued");
+  assert.equal(recovered.find((entry) => entry.id === 2).state, "completed");
 });
