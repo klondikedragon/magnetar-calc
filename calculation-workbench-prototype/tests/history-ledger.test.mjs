@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryWork, recoverOrphanedHistoryWork, transitionHistoryEntry, workerReferencesForEntry } from "../src/historyLedger.js";
+import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryBatch, nextHistoryWork, recoverOrphanedHistoryWork, transitionHistoryEntry, workerReferencesForEntry } from "../src/historyLedger.js";
 
 const complete = (id, expression, value) => ({ id, expression, value, state: "completed", ordinal: id, references: [], usesSequencePosition: false, error: null });
 
@@ -42,6 +42,15 @@ test("never schedules past an earlier computing entry", () => {
   const next = nextHistoryWork(computing);
   assert.equal(next.kind, "computing");
   assert.equal(next.entry.id, 1);
+});
+
+test("batches only contiguous History entries whose dependencies are resolved", () => {
+  let history = appendHistoryEntry([], { id: 1, expression: "yellowstone(@n)" });
+  history = appendHistoryEntry(history, { id: 2, expression: "yellowstone(@n)" });
+  history = appendHistoryEntry(history, { id: 3, expression: "@history(-1) + 1" });
+  const batch = nextHistoryBatch(history);
+  assert.equal(batch.kind, "ready");
+  assert.deepEqual(batch.jobs.map((job) => job.entry.id), [1, 2]);
 });
 
 test("returns orphaned computing work to the serial queue", () => {

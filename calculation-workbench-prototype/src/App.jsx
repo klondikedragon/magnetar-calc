@@ -5,7 +5,7 @@ import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, export
 import { createNotebook, validateNotebook } from "./notebook";
 import { exampleCategories, filterExampleCatalog, sortExampleCatalog } from "./exampleCatalog";
 import { filterFunctionCatalog, functionCategories, functionInsertion } from "./functionCatalog";
-import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryWork, rebuildHistoryLedger, recoverOrphanedHistoryWork, transitionHistoryEntry } from "./historyLedger";
+import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryBatch, rebuildHistoryLedger, recoverOrphanedHistoryWork, transitionHistoryEntry } from "./historyLedger";
 import { historyReferenceEntries } from "./historyReferences";
 import { createHistoryQueueDiagnostics } from "./historyQueueDiagnostics";
 import { createCoalescedPersistence } from "./coalescedPersistence";
@@ -337,6 +337,29 @@ export function App() {
     }
   }
 
+  function finishHistoryQueueBatch(results) {
+    const completed = new Map(results
+      .filter((result) => result.type === "result")
+      .map((result) => [`${result.id}:${result.revision}`, deserializeValue(result.value)]));
+    const failures = new Map(results
+      .filter((result) => result.type === "error")
+      .map((result) => [`${result.id}:${result.revision}`, calculationErrorMessage(result.message)]));
+    const nextHistory = historyRef.current.map((entry) => {
+      const key = `${entry.id}:${entry.revision}`;
+      if (completed.has(key)) return { ...entry, state: "completed", value: completed.get(key), error: null };
+      if (failures.has(key)) return { ...entry, state: "failed", value: null, error: failures.get(key) };
+      return entry;
+    });
+    historyRef.current = nextHistory;
+    setHistory(nextHistory);
+    if (completed.size) {
+      traceHistoryQueue({ event: "committed-batch", count: completed.size });
+      setToast(completed.size === 1 ? "Saved to History" : `${completed.size} calculations saved to History`);
+      setTimeout(() => setToast(""), 1500);
+    }
+    for (const [key, error] of failures) traceHistoryQueue({ event: "failed", key, error });
+  }
+
   function releaseHistoryQueueRun(run, { terminate = false } = {}) {
     if (!run || historyQueueRunRef.current !== run) return false;
     clearTimeout(run.deadline);
@@ -351,10 +374,13 @@ export function App() {
 
   function requeueHistoryRun(run, reason) {
     if (!releaseHistoryQueueRun(run, { terminate: true })) return false;
-    const nextHistory = transitionHistoryEntry(historyRef.current, run.entryId, run.revision, { state: "queued", error: null });
+    const runEntries = new Set(run.entries.map((entry) => `${entry.id}:${entry.revision}`));
+    const nextHistory = historyRef.current.map((entry) => runEntries.has(`${entry.id}:${entry.revision}`) && entry.state === "computing"
+      ? { ...entry, state: "queued", error: null }
+      : entry);
     historyRef.current = nextHistory;
     setHistory(nextHistory);
-    traceHistoryQueue({ event: "requeued-orphan", id: run.entryId, revision: run.revision, jobId: run.jobId, reason });
+    traceHistoryQueue({ event: "requeued-orphan", count: run.entries.length, jobId: run.jobId, reason });
     queueMicrotask(processHistoryQueue);
     return true;
   }
@@ -365,11 +391,11 @@ export function App() {
       traceHistoryQueue({ event: "recovered-orphan-busy-flag" });
     }
     if (historyQueueBusyRef.current) return;
-    const work = nextHistoryWork(historyRef.current);
+    const work = nextHistoryBatch(historyRef.current);
     if (work.kind === "empty") return;
     if (work.kind === "computing") {
       const activeRun = historyQueueRunRef.current;
-      if (activeRun?.entryId === work.entry.id && activeRun.revision === work.entry.revision) {
+      if (activeRun?.entries.some((entry) => entry.id === work.entry.id && entry.revision === work.entry.revision)) {
         // Keep the state flag aligned with the durable run record. A callback
         // can only advance this entry; later work must not bypass it.
         historyQueueBusyRef.current = true;
@@ -399,31 +425,53 @@ export function App() {
       queueMicrotask(processHistoryQueue);
       return;
     }
+    const workItems = work.jobs ?? [work];
     const nextItem = work.entry;
     const revision = nextItem.revision;
     historyQueueBusyRef.current = true;
-    const computingHistory = transitionHistoryEntry(historyRef.current, nextItem.id, revision, { state: "computing", error: null });
+    const workEntryKeys = new Set(workItems.map((item) => `${item.entry.id}:${item.entry.revision}`));
+    const computingHistory = historyRef.current.map((entry) => workEntryKeys.has(`${entry.id}:${entry.revision}`)
+      ? { ...entry, state: "computing", error: null }
+      : entry);
     historyRef.current = computingHistory;
     setHistory(computingHistory);
     const worker = historyQueueWorkerRef.current ?? new Worker(new URL("./calculation-worker.js", import.meta.url), { type: "module" });
     historyQueueWorkerRef.current = worker;
     const jobId = ++historyQueueJobRef.current;
-    traceHistoryQueue({ event: "dispatched", id: nextItem.id, revision, jobId, referenceCount: work.references.length });
-    const run = { worker, jobId, entryId: nextItem.id, revision, deadline: null };
+    traceHistoryQueue({ event: "dispatched", id: nextItem.id, revision, jobId, count: workItems.length, referenceCount: workItems.reduce((count, item) => count + item.references.length, 0) });
+    const run = { worker, jobId, entries: workItems.map((item) => ({ id: item.entry.id, revision: item.entry.revision })), deadline: null };
     historyQueueRunRef.current = run;
     run.deadline = setTimeout(() => {
       if (!releaseHistoryQueueRun(run, { terminate: true })) return;
-      const nextHistory = transitionHistoryEntry(historyRef.current, nextItem.id, revision, { state: "failed", value: null, error: "Time budget reached" });
+      const timedOut = new Set(run.entries.map((entry) => `${entry.id}:${entry.revision}`));
+      const nextHistory = historyRef.current.map((entry) => timedOut.has(`${entry.id}:${entry.revision}`)
+        ? { ...entry, state: "failed", value: null, error: "Time budget reached" }
+        : entry);
       historyRef.current = nextHistory;
       setHistory(nextHistory);
-      traceHistoryQueue({ event: "timed-out", id: nextItem.id, revision, jobId });
+      traceHistoryQueue({ event: "timed-out", count: run.entries.length, jobId });
       queueMicrotask(processHistoryQueue);
     }, 10000);
     worker.onmessage = ({ data }) => {
-      const current = historyRef.current.find((item) => item.id === nextItem.id);
-      if (historyQueueRunRef.current !== run || jobId !== historyQueueJobRef.current || historyQueueWorkerRef.current !== worker || current?.revision !== revision || current?.state !== "computing") {
-        traceHistoryQueue({ event: "discarded-stale-result", id: nextItem.id, revision, jobId });
+      const allCurrent = run.entries.every(({ id, revision: entryRevision }) => {
+        const current = historyRef.current.find((item) => item.id === id);
+        return current?.revision === entryRevision && current?.state === "computing";
+      });
+      if (historyQueueRunRef.current !== run || jobId !== historyQueueJobRef.current || historyQueueWorkerRef.current !== worker || !allCurrent) {
+        traceHistoryQueue({ event: "discarded-stale-result", count: run.entries.length, jobId });
         requeueHistoryRun(run, "stale worker result");
+        return;
+      }
+      if (data.type === "batch-result") {
+        const expected = new Set(run.entries.map((entry) => `${entry.id}:${entry.revision}`));
+        const received = new Set((data.results ?? []).map((result) => `${result.id}:${result.revision}`));
+        if (data.results?.length !== run.entries.length || received.size !== expected.size || [...expected].some((key) => !received.has(key))) {
+          requeueHistoryRun(run, "incomplete worker batch result");
+          return;
+        }
+        releaseHistoryQueueRun(run);
+        finishHistoryQueueBatch(data.results);
+        queueMicrotask(processHistoryQueue);
         return;
       }
       releaseHistoryQueueRun(run);
@@ -441,14 +489,30 @@ export function App() {
     };
     worker.onerror = () => {
       if (!releaseHistoryQueueRun(run, { terminate: true })) return;
-      const nextHistory = transitionHistoryEntry(historyRef.current, nextItem.id, revision, { state: "failed", value: null, error: "Calculation failed" });
+      const errored = new Set(run.entries.map((entry) => `${entry.id}:${entry.revision}`));
+      const nextHistory = historyRef.current.map((entry) => errored.has(`${entry.id}:${entry.revision}`)
+        ? { ...entry, state: "failed", value: null, error: "Calculation failed" }
+        : entry);
       historyRef.current = nextHistory;
       setHistory(nextHistory);
-      traceHistoryQueue({ event: "worker-error", id: nextItem.id, revision, jobId });
+      traceHistoryQueue({ event: "worker-error", count: run.entries.length, jobId });
       queueMicrotask(processHistoryQueue);
     };
     worker.onmessageerror = () => requeueHistoryRun(run, "worker message could not be read");
-    worker.postMessage({ jobId, expression: nextItem.expression, references: work.references.map(([token, value]) => [token, serializeValue(value)]), options: { precision } });
+    if (workItems.length === 1) {
+      worker.postMessage({ jobId, expression: nextItem.expression, references: work.references.map(([token, value]) => [token, serializeValue(value)]), options: { precision } });
+      return;
+    }
+    worker.postMessage({
+      jobId,
+      jobs: workItems.map((item) => ({
+        id: item.entry.id,
+        revision: item.entry.revision,
+        expression: item.entry.expression,
+        references: item.references.map(([token, value]) => [token, serializeValue(value)]),
+        options: { precision },
+      })),
+    });
   }
 
   function commit() {

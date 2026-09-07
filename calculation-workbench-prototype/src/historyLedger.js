@@ -84,6 +84,27 @@ export function nextHistoryWork(history) {
   return { kind: "ready", entry, references: payload.references };
 }
 
+// Collect a contiguous ready prefix for one worker message. Entries which
+// refer to an earlier pending History result deliberately stop the batch: they
+// must observe that result after it has completed. Ordinary expressions and
+// @n-only sequence entries, on the other hand, already have every input they
+// need and can share a worker/cache without changing their semantics.
+export function nextHistoryBatch(history, maximumSize = 64) {
+  const first = nextHistoryWork(history);
+  if (first.kind !== "ready") return first;
+  const jobs = [first];
+  const chronology = ordered(history);
+  const firstIndex = chronology.findIndex((entry) => entry.id === first.entry.id);
+  for (const entry of chronology.slice(firstIndex + 1)) {
+    if (jobs.length >= maximumSize) break;
+    if (entry.state !== "queued" && entry.state !== "dirty") break;
+    const payload = workerReferencesForEntry(history, entry);
+    if (payload.waiting || payload.blocked) break;
+    jobs.push({ kind: "ready", entry, references: payload.references });
+  }
+  return { kind: "ready", entry: first.entry, references: first.references, jobs };
+}
+
 export function transitionHistoryEntry(history, id, revision, update) {
   return history.map((entry) => entry.id === id && entry.revision === revision ? { ...entry, ...update } : entry);
 }
