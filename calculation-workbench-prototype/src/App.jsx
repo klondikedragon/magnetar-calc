@@ -231,6 +231,16 @@ export function App() {
   const filteredExamples = useMemo(() => sortExampleCatalog(filterExampleCatalog(exampleQuery, exampleCategory), exampleSort, exampleSortDirection), [exampleQuery, exampleCategory, exampleSort, exampleSortDirection]);
   const completedHistory = useMemo(() => history.filter((item) => item.state === "completed"), [history]);
   const pendingHistory = useMemo(() => history.filter((item) => item.state !== "completed"), [history]);
+  const historyRows = useMemo(() => {
+    const rows = [];
+    if (pendingHistory.length) {
+      rows.push({ kind: "queue-heading", hasComputing: pendingHistory.some((item) => item.state === "computing"), needsAttention: pendingHistory.some((item) => item.state === "failed" || item.state === "blocked") });
+      rows.push(...pendingHistory.slice().reverse().map((item) => ({ kind: "pending", item })));
+    }
+    rows.push(...completedHistory.map((item) => ({ kind: "completed", item })));
+    if (!history.length) rows.push({ kind: "empty" });
+    return rows;
+  }, [completedHistory, history.length, pendingHistory]);
 
   const referenceValues = useMemo(() => new Map([...completedHistory.flatMap((item, index) => {
     return [[`@history(${item.id})`, item.value], [`@history(-${index + 1})`, item.value]];
@@ -1041,6 +1051,34 @@ export function App() {
   const FullInfoDetails = ({ value, data, digits, sourceExpression }) => <section className="full-info-details"><div className="full-info-summary"><InspectorCopyValue label="engine" text={data.engine ?? value.engineLabel ?? "placeholder"} /><InspectorCopyValue label="representation" text={data.representation ?? "native"} /><InspectorCopyValue label="precision" text={data.precision ?? `${precisionLabel} digits`} /><InspectorCopyValue label="status" text={data.precisionLost ? "magnitude-only" : data.exactness ?? "approximate"} />{value.exactInteger && <InspectorCopyValue label="integer" text="exact" />}{primalityLabel(value) && <InspectorCopyValue label="primality" text={`${primalityLabel(value)}${value.primality?.method ? ` · ${value.primality.method}` : ""}`} />}{digits?.value && <InspectorCopyValue label={`base-${base} digits`} text={`${formatDigitCountForInspector(digits, { groupDigits })} · ${digits.certainty}`} />}</div>{data.canonical && <section className="full-info-structural"><p>STRUCTURAL FORM</p><InspectorCopyValue className="wide-value" label="canonical form" text={data.canonical} />{data.derivation && <InspectorCopyValue className="wide-value" label="derivation" text={data.derivation} />}</section>}{data.facts?.length > 0 && <section className="magnitude-dossier" aria-label="Magnitude dossier"><p>MAGNITUDE DOSSIER</p>{data.facts.map((fact) => <button className="magnitude-fact" key={fact.id} onClick={() => copyText(fact.value, fact.label)} title={`Copy ${fact.label}: ${fact.value}`}><span>{fact.label}</span><b>{fact.value}</b><small>{fact.certainty}</small></button>)}</section>}<div className="full-info-actions"><button onClick={() => copyDisplayed(value)} title={value?.kind === "steinhaus-moser" || value?.kind === "structural-power" || value?.kind === "extended-scale" ? "Copy the canonical construction syntax" : "Copy the result in the current display format"}>Copy result</button>{value?.kind !== "steinhaus-moser" && value?.kind !== "structural-power" && value?.kind !== "extended-scale" && <button onClick={() => exportHighPrecision(sourceExpression)} disabled={Boolean(exportWorkerRef.current)} title="Recalculate this expression with up to 10,000,000 significant digits, then copy it">Copy (10M digits)</button>}{data.provenance?.length > 0 && <button aria-expanded={provenanceOpen} onClick={() => setProvenanceOpen((open) => !open)} title="Show the rules, assumptions, evidence, and references behind these facts">Provenance</button>}</div>{provenanceOpen && data.provenance?.length > 0 && <section className="provenance-panel" aria-label="Calculation provenance"><p>CALCULATION PROVENANCE</p>{data.provenance.map((claim) => <article className="provenance-claim" key={claim.claim}><header><button className="provenance-claim-copy" onClick={() => copyText(claim.claim, "Claim")} title={`Copy claim: ${claim.claim}`}>{claim.claim}</button><small>{claim.certainty}</small></header><button className="provenance-rule-copy" onClick={() => copyText(claim.rule, "Rule")} title={`Copy rule: ${claim.rule}`}>{claim.rule}</button><button className="provenance-approach-copy" onClick={() => copyText(claim.approach, "Approach")} title="Copy evidence approach">{claim.approach}</button><div className="provenance-inputs"><span>Inputs</span><button onClick={() => copyText(claim.inputs.base, "Base")} title="Copy base">base {claim.inputs.base}</button><button onClick={() => copyText(claim.inputs.exponent, "Exponent")} title="Copy exponent">exponent {claim.inputs.exponent}</button></div><div className="provenance-sources">{claim.sources.map((source) => <a key={source.id} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</div></article>)}</section>}</section>;
   const InspectionDetails = ({ value, data, digits, sourceExpression }) => <div className="inspector inspection-details"><div><span>engine</span><b>{data.engine ?? value.engineLabel ?? "placeholder"}</b></div><div><span>representation</span><b>{data.representation ?? "native"}</b></div><div><span>precision</span><b>{data.precision ?? `${precisionLabel} digits`}</b></div><div><span>status</span><b>{data.precisionLost ? "magnitude-only" : data.exactness ?? "approximate"}</b></div>{data.canonical && <div className="structural-detail"><span>canonical form</span><b>{data.canonical}</b><small>{data.derivation}</small></div>}{value.exactInteger && <div><span>integer</span><b>exact</b></div>}{primalityLabel(value) && <div><span>primality</span><b>{primalityLabel(value)}{value.primality?.method && <small> · {value.primality.method}</small>}</b></div>}{digits?.value && <div className="digit-count"><span>base-{base} digits</span><b>{formatDigitCountForInspector(digits, { groupDigits })}</b><small>{digits.certainty}</small></div>}{data.facts?.length > 0 && <section className="magnitude-dossier" aria-label="Magnitude dossier"><p>MAGNITUDE DOSSIER</p>{data.facts.map((fact) => <div className="magnitude-fact" key={fact.id}><span>{fact.label}</span><b>{fact.value}</b><small>{fact.certainty}</small></div>)}</section>}<div className="inspector-actions"><button onClick={() => copyDisplayed(value)} title={value?.kind === "steinhaus-moser" || value?.kind === "structural-power" ? "Copy the canonical construction syntax" : "Copy the result in the current display format"}>Copy</button>{value?.kind !== "steinhaus-moser" && value?.kind !== "structural-power" && <button onClick={() => exportHighPrecision(sourceExpression)} disabled={Boolean(exportWorkerRef.current)} title="Recalculate this expression with up to 10,000,000 significant digits, then copy it">Copy (10M digits)</button>}{data.provenance?.length > 0 && <button aria-expanded={provenanceOpen} onClick={() => setProvenanceOpen((open) => !open)} title="Show the rules, assumptions, evidence, and references behind these facts">Provenance</button>}</div>{provenanceOpen && data.provenance?.length > 0 && <section className="provenance-panel" aria-label="Calculation provenance"><p>CALCULATION PROVENANCE</p>{data.provenance.map((claim) => <article className="provenance-claim" key={claim.claim}><header><b>{claim.claim}</b><small>{claim.certainty}</small></header><span>{claim.rule}</span><p>{claim.approach}</p><small>Inputs: base {claim.inputs.base}; exponent {claim.inputs.exponent}</small><div className="provenance-sources">{claim.sources.map((source) => <a key={source.id} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</div></article>)}</section>}</div>;
   const HistoryExpression = ({ item, queued = false }) => <p className="history-expression selectable-text" aria-label={`${queued ? "Queued " : ""}History expression: ${item.expression}`}>{item.expression}{(item.usesSequencePosition || item.expression.includes("@n")) && <span className="history-position-badge" aria-label={`At this History position, @n equals ${item.ordinal}`}>n = {item.ordinal}</span>}</p>;
+  const HistoryRow = ({ row }) => {
+    if (row.kind === "queue-heading") return <section className="history-queue" aria-label="Pending History calculations"><div className="history-queue-heading"><span>{row.hasComputing ? "Computing History queue" : row.needsAttention ? "History queue needs attention" : "History queue"}</span><button onClick={cancelHistoryQueue}>Cancel queue</button></div></section>;
+    if (row.kind === "pending") {
+      const item = row.item;
+      return <article className={`history-item history-pending ${item.state}`}>
+        <div className="history-top"><span className="history-id">@history({item.id}) · {item.state === "computing" ? "◌ Computing" : item.state === "failed" || item.state === "blocked" ? "! Not calculated" : item.state === "dirty" ? "↻ Needs update" : "○ Queued"}</span></div>
+        <HistoryExpression item={item} queued />
+        <p className="history-pending-status">{item.state === "failed" || item.state === "blocked" ? item.error : item.state === "computing" ? "Resolving its required History values…" : item.state === "dirty" ? "Waiting to recompute after a History change…" : "Waiting for earlier History calculations…"}</p>
+      </article>;
+    }
+    if (row.kind === "empty") return <p className="empty">History is clear. New committed calculations will appear here.</p>;
+    const item = row.item;
+    const itemResult = renderResult(item.value);
+    const itemPrimality = primalityLabel(item.value);
+    const itemTooltip = formatAutomatically(item.value, { base, precision, notation, groupDigits }).text;
+    return <article className="history-item">
+      <div className="history-top">
+        <span className="history-id selectable-text" aria-label={`History item ${item.id}`}>@history({item.id})</span>
+        <span className="history-actions">
+          <button className="use-button info-button" aria-label={`Inspect History item ${item.id}`} onClick={() => openHistoryInfo(item)}>Info</button>
+          <button className="use-button" aria-label={`Use History item ${item.id} in the active expression`} onClick={() => useHistory(item)}>Use</button>
+          <button className="delete-history" aria-label={`Delete History item ${item.id}`} title={`Delete @history(${item.id})`} onClick={() => deleteHistoryEntry(item.id)}>×</button>
+        </span>
+      </div>
+      <HistoryExpression item={item} />
+      <button className="history-result selectable-output" aria-label={resultLabel(itemResult, "Copy History result")} title={`${itemTooltip} · click to copy`} onClick={() => copyResult(item.value, `history:${item.id}`)}>{renderResultContent(itemResult)}<CopyFeedback target={`history:${item.id}`} />{item.value.primality?.kind === "prime" && <span className={`prime-badge ${item.value.primality.certainty}`} title={itemPrimality === "prime" ? "Verified prime" : "Probable prime"} aria-label={itemPrimality === "prime" ? "Verified prime" : "Probable prime"}>P{item.value.primality.certainty === "probable" ? "?" : ""}</span>}</button>
+    </article>;
+  };
   function recallMemory() { if (memory?.expression) { updatePreview(`${expression}${expression ? " " : ""}(${memory.expression})`); requestAnimationFrame(() => expressionRef.current?.focus()); setMemoryOpen(false); } }
   return <main className="app-shell">
     <section className={`workbench ${expressionLines >= 5 ? "expression-tall" : ""}`}>
@@ -1080,32 +1118,7 @@ export function App() {
           </div>
           {transferStatus && <div className="transfer-status" role="status">{transferStatus}{notebookOperationRef.current && <button onClick={cancelNotebookOperation}>Cancel</button>}</div>}
           <div className="history-list">
-            {pendingHistory.length > 0 && <section className="history-queue" aria-label="Pending History calculations">
-              <div className="history-queue-heading"><span>{pendingHistory.some((item) => item.state === "computing") ? "Computing History queue" : pendingHistory.some((item) => item.state === "failed" || item.state === "blocked") ? "History queue needs attention" : "History queue"}</span><button onClick={cancelHistoryQueue}>Cancel queue</button></div>
-              {pendingHistory.slice().reverse().map((item) => <article className={`history-item history-pending ${item.state}`} key={`queue-${item.id}`}>
-                <div className="history-top"><span className="history-id">@history({item.id}) · {item.state === "computing" ? "◌ Computing" : item.state === "failed" || item.state === "blocked" ? "! Not calculated" : item.state === "dirty" ? "↻ Needs update" : "○ Queued"}</span></div>
-                <HistoryExpression item={item} queued />
-                <p className="history-pending-status">{item.state === "failed" || item.state === "blocked" ? item.error : item.state === "computing" ? "Resolving its required History values…" : item.state === "dirty" ? "Waiting to recompute after a History change…" : "Waiting for earlier History calculations…"}</p>
-              </article>)}
-            </section>}
-            {completedHistory.map((item) => {
-              const itemResult = renderResult(item.value);
-              const itemPrimality = primalityLabel(item.value);
-              const itemTooltip = formatAutomatically(item.value, { base, precision, notation, groupDigits }).text;
-              return <article className="history-item" key={item.id}>
-                <div className="history-top">
-                  <span className="history-id selectable-text" aria-label={`History item ${item.id}`}>@history({item.id})</span>
-                  <span className="history-actions">
-                    <button className="use-button info-button" aria-label={`Inspect History item ${item.id}`} onClick={() => openHistoryInfo(item)}>Info</button>
-                    <button className="use-button" aria-label={`Use History item ${item.id} in the active expression`} onClick={() => useHistory(item)}>Use</button>
-                    <button className="delete-history" aria-label={`Delete History item ${item.id}`} title={`Delete @history(${item.id})`} onClick={() => deleteHistoryEntry(item.id)}>×</button>
-                  </span>
-                </div>
-                <HistoryExpression item={item} />
-                <button className="history-result selectable-output" aria-label={resultLabel(itemResult, "Copy History result")} title={`${itemTooltip} · click to copy`} onClick={() => copyResult(item.value, `history:${item.id}`)}>{renderResultContent(itemResult)}<CopyFeedback target={`history:${item.id}`} />{item.value.primality?.kind === "prime" && <span className={`prime-badge ${item.value.primality.certainty}`} title={itemPrimality === "prime" ? "Verified prime" : "Probable prime"} aria-label={itemPrimality === "prime" ? "Verified prime" : "Probable prime"}>P{item.value.primality.certainty === "probable" ? "?" : ""}</span>}</button>
-              </article>;
-            })}
-            {!history.length && <p className="empty">History is clear. New committed calculations will appear here.</p>}
+            <Virtuoso className="history-virtuoso" data={historyRows} itemContent={(_, row) => <HistoryRow row={row} />} />
           </div>
         </div>
       </section>
