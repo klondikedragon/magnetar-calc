@@ -13,6 +13,15 @@ function recurrenceNotebook(seeds, expression) {
   };
 }
 
+function directSequenceNotebook(expression, count = 100) {
+  return {
+    schemaVersion: 1,
+    activeExpression: { expression },
+    history: [{ repeat: { expression, count, startId: 1 } }],
+    nextHistoryId: count + 1,
+  };
+}
+
 const fibonacciNotebook = recurrenceNotebook([1, 1], "@history(-1) + @history(-2)");
 
 const powerTowerNotebook = {
@@ -35,6 +44,8 @@ const lucasNotebook = recurrenceNotebook([2, 1], "@history(-1) + @history(-2)");
 const pellNotebook = recurrenceNotebook([0, 1], "2 @history(-1) + @history(-2)");
 const tribonacciNotebook = recurrenceNotebook([0, 0, 1], "@history(-1) + @history(-2) + @history(-3)");
 const padovanNotebook = recurrenceNotebook([1, 1, 1], "@history(-2) + @history(-3)");
+const recamanNotebook = directSequenceNotebook("recaman(@n - 1)");
+const sternNotebook = directSequenceNotebook("stern(@n - 1)");
 
 /**
  * Examples are source-backed notebooks rather than cached answers. Imports
@@ -106,6 +117,50 @@ export const exampleCatalog = [
       { label: "Numberphile: The Yellowstone Permutation", url: "https://www.youtube.com/watch?v=DUaqiM1bGX4" },
     ],
     video: { title: "The Yellowstone Permutation — Numberphile", url: "https://www.youtube.com/watch?v=DUaqiM1bGX4" },
+  },
+  {
+    id: "sequences.recaman-walk",
+    published: true,
+    category: "Sequences",
+    name: "Recamán's sequence: a reluctant walk",
+    description: "A greedy walk that traces striking arcs while its simple local rule leaves deep global questions open.",
+    keywords: ["recaman", "numberphile", "greedy", "walk", "a005132", "sequence", "graph"],
+    notebook: recamanNotebook,
+    verification: { fixture: "examples.recaman-walk", status: "verified" },
+    details: {
+      overview: [
+        "Beginning at 0, step n attempts to subtract n. If that would be nonpositive or revisit a previous value, the sequence adds n instead.",
+        "The resulting path combines a rigid step-size rule with unexpectedly intricate long-range behavior. It is not a permutation: repeated values eventually occur.",
+      ],
+      steps: ["Examine the alternating upward and downward moves.", "Locate the first repeated values.", "Plot the first hundred terms to see the walk's irregular geometry."],
+    },
+    references: [
+      { label: "OEIS A005132: Recamán's sequence", url: "https://oeis.org/A005132" },
+      { label: "Numberphile: The Slightly Spooky Recamán Sequence", url: "https://www.numberphile.com/videos/slightly-spooky-recaman-sequence" },
+    ],
+    video: { title: "The Slightly Spooky Recamán Sequence — Numberphile", url: "https://www.youtube.com/watch?v=FGC5TdIiT9U" },
+  },
+  {
+    id: "sequences.stern-diatomic",
+    published: true,
+    category: "Sequences",
+    name: "Stern's diatomic sequence",
+    description: "A binary recurrence whose neighboring-term ratios enumerate every nonnegative reduced rational exactly once.",
+    keywords: ["stern", "diatomic", "stern-brocot", "calkin-wilf", "numberphile", "a002487", "binary", "fractions"],
+    notebook: sternNotebook,
+    verification: { fixture: "examples.stern-diatomic", status: "verified" },
+    details: {
+      overview: [
+        "Stern's sequence starts 0, 1 and splits by binary parity: a(2n) = a(n), while a(2n + 1) = a(n) + a(n + 1).",
+        "Its neighboring ratios a(n)/a(n + 1) run through every nonnegative rational in lowest terms exactly once, linking a jagged integer sequence to the Stern–Brocot and Calkin–Wilf fraction trees.",
+      ],
+      steps: ["Group terms by powers-of-two rows.", "Compare the recurrence with binary digits of the index.", "Inspect neighboring ratios as reduced fractions."],
+    },
+    references: [
+      { label: "OEIS A002487: Stern's diatomic sequence", url: "https://oeis.org/A002487" },
+      { label: "Numberphile: Amazing Graphs III", url: "https://www.numberphile.com/videos/amazing-graphs-3" },
+    ],
+    video: { title: "Amazing Graphs III — Numberphile", url: "https://www.youtube.com/watch?v=j0o-pMIR8uk" },
   },
   {
     id: "sequences.lucas-companion",
@@ -214,6 +269,54 @@ export const exampleCatalog = [
     verification: { fixture: null, status: "draft" },
     details: { overview: ["Not published: a precise definition and independent verification are required first."], steps: [] },
     references: [],
+  },
+  {
+    id: "draft.look-and-say",
+    published: false,
+    category: "Sequences",
+    name: "Conway's look-and-say sequence",
+    description: "A digit-string sequence whose long-term structure is governed by Conway's audioactive decomposition.",
+    keywords: ["look and say", "conway", "numberphile", "digit strings", "audioactive"],
+    notebook: fibonacciNotebook,
+    verification: { fixture: null, status: "draft" },
+    details: { overview: ["Not published: needs a text-valued sequence representation and tests for the finite string rules."], steps: [] },
+    references: [{ label: "Numberphile: Look-and-Say Numbers", url: "https://www.numberphile.com/videos/look-and-say-numbers-feat-john-conway" }],
+  },
+  {
+    id: "draft.self-referential-sequences",
+    published: false,
+    category: "Sequences",
+    name: "Golomb, Kolakoski, and Gijswijt sequences",
+    description: "Self-referential sequences whose efficient, bounded generation needs specialized cache invariants.",
+    keywords: ["golomb", "kolakoski", "gijswijt", "numberphile", "self referential"],
+    notebook: fibonacciNotebook,
+    verification: { fixture: null, status: "draft" },
+    details: { overview: ["Not published: needs separate definitions, bounded caches, and oracle prefixes for each sequence."], steps: [] },
+    references: [{ label: "Numberphile: Six Sequences", url: "https://www.numberphile.com/videos/six-sequences" }],
+  },
+  {
+    id: "draft.goodstein-sequence",
+    published: false,
+    category: "Ordinal & hierarchy",
+    name: "The Goodstein sequence",
+    description: "A finite-integer process whose termination is explained using transfinite ordinal descent.",
+    keywords: ["goodstein", "ordinal", "numberphile", "hereditary base", "termination"],
+    notebook: fibonacciNotebook,
+    verification: { fixture: null, status: "draft" },
+    details: { overview: ["Not published: needs hereditary-base notation, ordinal semantics, and structural termination provenance."], steps: [] },
+    references: [{ label: "Numberphile: The Goodstein Sequence", url: "https://www.numberphile.com/videos/the-goodstein-sequence" }],
+  },
+  {
+    id: "draft.prime-pyramid",
+    published: false,
+    category: "Prime patterns",
+    name: "Prime Pyramid",
+    description: "A triangular construction whose local arithmetic produces surprising prime patterns.",
+    keywords: ["prime pyramid", "3blue1brown", "numberphile", "triangle", "primes"],
+    notebook: fibonacciNotebook,
+    verification: { fixture: null, status: "draft" },
+    details: { overview: ["Not published: needs a triangular-array value model and source-backed row semantics before charting."], steps: [] },
+    references: [{ label: "Numberphile: Prime Pyramid", url: "https://www.numberphile.com/videos/prime-pyramid" }],
   },
 ];
 

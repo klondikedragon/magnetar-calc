@@ -33,6 +33,7 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - History is displayed newest-first; seeded examples follow the same ordering, so `@history(1)` appears at the bottom.
 - Imported v1 notebooks may contain validated bounded History repeat blocks; materialize them to ordinary newest-first entries before dependency analysis. Exports always flatten History to ordinary entries.
 - Examples are grouped by mathematical subject, not calculator mechanics: use `Sequences` and `Magnitude & growth`. An optional primary-video field appears as a compact red play icon whose tooltip names the video.
+- Published sequence examples must have a source-backed definition, a stable function or recurrence, exact prefix/oracle coverage, and a graph-ready History prefix. Textual, self-referential, and ordinal candidates remain unpublished drafts until their required value model and bounded evaluation plan exist.
 - Well-known constants are resolved by the active engine; Decimal.js computes π/e/τ at its configured calculation precision rather than using parser literals.
 - Memory exposes a visible hoverable indicator; invalid/incomplete expressions retain the last valid preview and show a subtle inline status.
 - Memory is an accumulated expression sequence: M+ appends and evaluates the current expression, MR recalls the full parenthesized expression, and the memory chip opens a detail overlay.

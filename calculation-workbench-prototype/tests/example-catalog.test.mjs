@@ -7,7 +7,7 @@ import { validateNotebook } from "../src/notebook.js";
 test("published examples have stable identities, references, valid notebooks, and fixtures", () => {
   assert.equal(validatePublishedExamples(), true);
   assert.equal(new Set(exampleCatalog.map((entry) => entry.id)).size, exampleCatalog.length);
-  assert.deepEqual(publishedExamples.map((entry) => entry.id), ["history.fibonacci-continuation", "magnitude.power-tower-25", "sequences.yellowstone-permutation", "sequences.lucas-companion", "sequences.pell-silver-ratio", "sequences.tribonacci", "sequences.padovan-plastic"]);
+  assert.deepEqual(publishedExamples.map((entry) => entry.id), ["history.fibonacci-continuation", "magnitude.power-tower-25", "sequences.yellowstone-permutation", "sequences.recaman-walk", "sequences.stern-diatomic", "sequences.lucas-companion", "sequences.pell-silver-ratio", "sequences.tribonacci", "sequences.padovan-plastic"]);
 });
 
 test("Yellowstone fixture uses the next History position and has the OEIS prefix", () => {
@@ -65,9 +65,25 @@ test("catalog categories use mathematical names and primary videos are searchabl
   assert.ok(filterExampleCatalog("yellowstone permutation numberphile").includes(yellowstone));
 });
 
+test("direct sequence examples load a graph-ready 100-term prefix", () => {
+  const cases = [
+    ["sequences.recaman-walk", [0, 1, 3, 6, 2, 7]],
+    ["sequences.stern-diatomic", [0, 1, 1, 2, 1, 3]],
+  ];
+  for (const [id, expected] of cases) {
+    const example = exampleCatalog.find((entry) => entry.id === id);
+    const notebook = validateNotebook(example.notebook);
+    assert.equal(notebook.history.length, 100);
+    assert.equal(notebook.expression, notebook.history[0].expression);
+    const actual = [...notebook.history].reverse().slice(0, expected.length).map((entry, index) => evaluateAutomatically(entry.expression, new Map([["@n", String(index + 1)]])).decimal.toNumber());
+    assert.deepEqual(actual, expected);
+    assert.ok(example.video?.title);
+  }
+});
+
 test("example search includes keywords and reference URLs but excludes drafts", () => {
   assert.deepEqual(parseExampleSearch('fibonacci "relative history"'), ["fibonacci", "relative history"]);
-  assert.deepEqual(filterExampleCatalog("oeis").map((entry) => entry.id), ["history.fibonacci-continuation", "sequences.yellowstone-permutation", "sequences.lucas-companion", "sequences.pell-silver-ratio", "sequences.tribonacci", "sequences.padovan-plastic"]);
+  assert.deepEqual(filterExampleCatalog("oeis").map((entry) => entry.id), ["history.fibonacci-continuation", "sequences.yellowstone-permutation", "sequences.recaman-walk", "sequences.stern-diatomic", "sequences.lucas-companion", "sequences.pell-silver-ratio", "sequences.tribonacci", "sequences.padovan-plastic"]);
   assert.equal(filterExampleCatalog("basement").length, 0);
 });
 

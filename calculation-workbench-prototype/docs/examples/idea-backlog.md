@@ -14,3 +14,11 @@ playbook's source, implementation, and verification steps before promotion.
   number, with visual notation and structural provenance.
 - Fast-growing hierarchies: separately staged examples once ordinal semantics,
   structural representation, and source-backed notation are settled.
+- Look-and-say: implement a text-valued sequence representation before adding
+  Conway's audioactive decomposition as a published example.
+- Golomb, Kolakoski, and Gijswijt: each needs its own bounded shared cache,
+  generation invariants, and independent OEIS-prefix oracle tests.
+- Goodstein: hereditary-base and ordinal representations must arrive before a
+  structural termination example can be truthful.
+- Prime Pyramid: model triangular arrays and their source-backed row semantics
+  before presenting a 3Blue1Brown/Numberphile graphing lesson.
