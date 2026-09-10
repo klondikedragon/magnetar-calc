@@ -15,6 +15,22 @@ from sympy.functions.combinatorial.numbers import stirling
 
 def exact(operation, arguments):
     values = [int(argument) for argument in arguments]
+    if operation == "recaman":
+        values_seen = {0}
+        value = 0
+        for index in range(1, values[0] + 1):
+            backward = value - index
+            value = backward if backward > 0 and backward not in values_seen else value + index
+            values_seen.add(value)
+        return value
+    if operation == "stern":
+        left, right = 0, 1
+        for bit in bin(values[0])[2:]:
+            if bit == "0":
+                right = left + right
+            else:
+                left = left + right
+        return left
     if operation == "factorial":
         return factorial(values[0])
     if operation == "power":

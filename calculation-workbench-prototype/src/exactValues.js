@@ -3,6 +3,8 @@ import { yellowstoneTerm } from "./yellowstone.js";
 // Exact values are deliberately separate from Decimal.js. They retain the
 // mathematical result as BigInt components and only become an approximation
 // when a caller explicitly asks for one.
+import { recamanTerm } from "./recaman.js";
+import { sternTerm } from "./stern.js";
 
 // This is an expansion budget, not a precision setting. One hundred thousand
 // decimal digits is still compact enough for the worker and lets ordinary
@@ -180,7 +182,7 @@ function exactSquareRoot(value) {
 }
 
 function sequence(implementationId, args) {
-  const n = natural(args[0], implementationId === "sequence-nth-prime" ? 100_000 : implementationId === "sequence-yellowstone" ? 10_000 : 2_000);
+  const n = natural(args[0], implementationId === "sequence-nth-prime" || implementationId === "sequence-recaman" ? 100_000 : implementationId === "sequence-stern" ? 1_000_000 : implementationId === "sequence-yellowstone" ? 10_000 : 2_000);
   if (implementationId === "sequence-fibonacci" || implementationId === "sequence-lucas" || implementationId === "sequence-jacobsthal") {
     let a = implementationId === "sequence-lucas" ? 2n : 0n;
     let b = 1n;
@@ -231,6 +233,8 @@ function sequence(implementationId, args) {
     return result;
   }
   if (implementationId === "sequence-yellowstone") return exactInteger(yellowstoneTerm(n));
+  if (implementationId === "sequence-recaman") return exactInteger(recamanTerm(n));
+  if (implementationId === "sequence-stern") return exactInteger(sternTerm(n));
   notExact();
 }
 

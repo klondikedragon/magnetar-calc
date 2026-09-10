@@ -24,6 +24,8 @@ import {
   tryEvaluateExtendedScale,
 } from "./extendedScale.js";
 import { yellowstoneTerm } from "./yellowstone.js";
+import { recamanTerm } from "./recaman.js";
+import { sternTerm } from "./stern.js";
 
 function formatNumber(number, base, precision = 48, notation = "auto") {
   if (!Number.isFinite(number)) return { sign: "", significand: "Not a finite number", exponent: "", text: "Not a finite number", full: String(number) };
@@ -189,7 +191,7 @@ function naturalArgument(value, label, maximum = 10000) {
 }
 
 function bigIntegerSequence(name, args, Ctor) {
-  const n = naturalArgument(args[0], name, name === "prime" ? 100000 : name === "yellowstone" ? 10000 : name === "harmonic" ? 10000 : 2000);
+  const n = naturalArgument(args[0], name, name === "prime" || name === "recaman" ? 100000 : name === "stern" ? 1000000 : name === "yellowstone" ? 10000 : name === "harmonic" ? 10000 : 2000);
   const asCtor = (value) => new Ctor(value.toString());
   if (name === "fib" || name === "lucas" || name === "jacobsthal") {
     let a = name === "lucas" ? 2n : 0n;
@@ -205,6 +207,8 @@ function bigIntegerSequence(name, args, Ctor) {
   if (name === "bell") { let row = [1n]; for (let index = 1; index <= n; index += 1) { const next = [row.at(-1)]; for (let column = 1; column <= index; column += 1) next.push(next[column - 1] + row[column - 1]); row = next; } return asCtor(row[0]); }
   if (name === "harmonic") { let result = new Ctor(0); for (let index = 1; index <= n; index += 1) result = result.add(new Ctor(1).div(index)); return result; }
   if (name === "yellowstone") return asCtor(yellowstoneTerm(n));
+  if (name === "recaman") return asCtor(recamanTerm(n));
+  if (name === "stern") return asCtor(sternTerm(n));
   if (name === "prime" || name === "primepi") { const bound = name === "prime" ? Math.max(20, Math.ceil(n * (Math.log(Math.max(n, 2)) + Math.log(Math.log(Math.max(n, 3))) + 3))) : n; const sieve = new Uint8Array(bound + 1); let count = 0; for (let candidate = 2; candidate <= bound; candidate += 1) { if (sieve[candidate]) continue; count += 1; if (name === "prime" && count === n) return new Ctor(candidate); for (let multiple = candidate * candidate; multiple <= bound; multiple += candidate) sieve[multiple] = 1; } return new Ctor(count); }
   throw new Error("unknown sequence");
 }
@@ -294,7 +298,7 @@ function evaluateBreakLegacy(expression, references = new Map(), Ctor = BreakDec
       if (fn) return args[0][fn]();
       if (token.toLowerCase() === "min") return args.reduce((lowest, value) => value.lt(lowest) ? value : lowest);
       if (token.toLowerCase() === "max") return args.reduce((highest, value) => value.gt(highest) ? value : highest);
-      if (["fib", "lucas", "prime", "primepi", "partition", "catalan", "bell", "triangular", "harmonic", "jacobsthal", "stirling2", "binomial"].includes(token.toLowerCase())) return bigIntegerSequence(token.toLowerCase(), args, Ctor);
+      if (["fib", "lucas", "prime", "primepi", "partition", "catalan", "bell", "triangular", "harmonic", "jacobsthal", "yellowstone", "recaman", "stern", "stirling2", "binomial"].includes(token.toLowerCase())) return bigIntegerSequence(token.toLowerCase(), args, Ctor);
       if (/^fgh[1-3]$/.test(token.toLowerCase())) return wainerFinite(Number(token.at(-1)), args[0], Ctor);
       throw new Error("unknown function");
     }

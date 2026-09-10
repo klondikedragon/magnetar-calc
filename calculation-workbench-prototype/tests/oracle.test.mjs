@@ -12,6 +12,8 @@ const oracleCases = [
   { id: "binomial-100-50", expression: "binomial(100, 50)", kind: "exact", operation: "binomial", arguments: ["100", "50"] },
   { id: "fibonacci-200", expression: "fib(200)", kind: "exact", operation: "fibonacci", arguments: ["200"] },
   { id: "lucas-100", expression: "lucas(100)", kind: "exact", operation: "lucas", arguments: ["100"] },
+  { id: "recaman-250", expression: "recaman(250)", kind: "exact", operation: "recaman", arguments: ["250"] },
+  { id: "stern-100000", expression: "stern(100000)", kind: "exact", operation: "stern", arguments: ["100000"] },
   { id: "catalan-50", expression: "catalan(50)", kind: "exact", operation: "catalan", arguments: ["50"] },
   { id: "bell-20", expression: "bell(20)", kind: "exact", operation: "bell", arguments: ["20"] },
   { id: "stirling-15-6", expression: "stirling2(15, 6)", kind: "exact", operation: "stirling2", arguments: ["15", "6"] },

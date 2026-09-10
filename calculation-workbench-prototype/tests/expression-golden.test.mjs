@@ -45,6 +45,8 @@ const successfulExpressions = [
   ["triangular", "triangular(10)", "55"],
   ["harmonic", "harmonic(3)", { prefix: "1.8333333333333333333333333333333333333333333333333" }],
   ["Jacobsthal", "jacobsthal(10)", "341"],
+  ["Recamán", "recaman(24)", "42"],
+  ["Stern diatomic", "stern(11)", "5"],
   ["Stirling second kind", "stirling2(5, 2)", "15"],
   ["binomial", "binomial(10, 3)", "120"],
   ["Steinhaus triangle", "sm_triangle(3)", "27"],
