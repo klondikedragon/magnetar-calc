@@ -12,3 +12,8 @@ cleanupOutdatedCaches();
 
 // A cached app shell keeps the calculator reachable on an offline restart.
 registerRoute(new NavigationRoute(createHandlerBoundToURL("/index.html")));
+
+// The client sends this only after its update-safety gate has flushed state.
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+});

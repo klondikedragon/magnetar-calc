@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, ChartNoAxesCombined, Check, Copy, ExternalLink, FolderOpen, Info, PlaySquare, RotateCcw, Save } from "lucide-react";
 import { TableVirtuoso, Virtuoso } from "react-virtuoso";
+import { registerSW } from "virtual:pwa-register";
 import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, exportPrecision, formatAutomatically, formatDigitCountForInspector, formatForHighPrecisionExport, inspectAutomatically, serializeValue } from "./engine";
 import { createNotebook, validateNotebook } from "./notebook";
 import { exampleCategories, filterExampleCatalog, sortExampleCatalog } from "./exampleCatalog";
@@ -9,6 +10,7 @@ import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryBatch, r
 import { historyReferenceEntries } from "./historyReferences";
 import { createHistoryQueueDiagnostics } from "./historyQueueDiagnostics";
 import { createCoalescedPersistence } from "./coalescedPersistence";
+import { canActivatePwaUpdate, pwaUpdateCheckIntervalMs, pwaUpdateIdleDelay } from "./pwaUpdatePolicy";
 
 const HistoryChartDialog = lazy(() => import("./HistoryChartDialog"));
 
@@ -128,6 +130,8 @@ export function App() {
   const [sequenceRunOpen, setSequenceRunOpen] = useState(false);
   const [sequenceRunCount, setSequenceRunCount] = useState("50");
   const [expressionLines, setExpressionLines] = useState(1);
+  const [pwaUpdateAvailable, setPwaUpdateAvailable] = useState(false);
+  const [lastPwaInteractionAt, setLastPwaInteractionAt] = useState(() => Date.now());
   const expressionRef = useRef(null);
   const memoryFeedbackTimer = useRef(null);
   const memoryDialogRef = useRef(null);
@@ -161,6 +165,8 @@ export function App() {
   const completedReferenceKeyRef = useRef("");
   const copyFeedbackTimerRef = useRef(null);
   const workspacePersistenceRef = useRef(null);
+  const pwaUpdateRef = useRef(null);
+  const pwaUpdateActivationRef = useRef(false);
   if (!workspacePersistenceRef.current) {
     workspacePersistenceRef.current = createCoalescedPersistence({
       write: (snapshot) => {
@@ -193,6 +199,37 @@ export function App() {
     const returnFocus = (event) => { if (!event.target.closest(".memory-chip")) focusExpression(); };
     strip?.addEventListener("click", returnFocus);
     return () => strip?.removeEventListener("click", returnFocus);
+  }, []);
+  useEffect(() => {
+    const noteInteraction = () => setLastPwaInteractionAt(Date.now());
+    window.addEventListener("pointerdown", noteInteraction, { capture: true });
+    window.addEventListener("keydown", noteInteraction, { capture: true });
+    return () => {
+      window.removeEventListener("pointerdown", noteInteraction, { capture: true });
+      window.removeEventListener("keydown", noteInteraction, { capture: true });
+    };
+  }, []);
+  useEffect(() => {
+    if (!import.meta.env.PROD || !("serviceWorker" in navigator)) return undefined;
+    let clearUpdateChecks = () => {};
+    const updateSW = registerSW({
+      immediate: true,
+      onNeedRefresh() { setPwaUpdateAvailable(true); },
+      onRegisteredSW(_serviceWorkerUrl, registration) {
+        if (!registration) return;
+        const checkForUpdate = () => registration.update().catch(() => {});
+        window.addEventListener("focus", checkForUpdate);
+        window.addEventListener("online", checkForUpdate);
+        const interval = window.setInterval(checkForUpdate, pwaUpdateCheckIntervalMs);
+        clearUpdateChecks = () => {
+          window.removeEventListener("focus", checkForUpdate);
+          window.removeEventListener("online", checkForUpdate);
+          window.clearInterval(interval);
+        };
+      },
+    });
+    pwaUpdateRef.current = updateSW;
+    return () => clearUpdateChecks();
   }, []);
   useEffect(() => {
     workspacePersistenceRef.current.schedule(() => JSON.stringify({
@@ -231,6 +268,16 @@ export function App() {
   const filteredExamples = useMemo(() => sortExampleCatalog(filterExampleCatalog(exampleQuery, exampleCategory), exampleSort, exampleSortDirection), [exampleQuery, exampleCategory, exampleSort, exampleSortDirection]);
   const completedHistory = useMemo(() => history.filter((item) => item.state === "completed"), [history]);
   const pendingHistory = useMemo(() => history.filter((item) => item.state !== "completed"), [history]);
+  const pwaModalOpen = exportDialogOpen || examplesOpen || historyChartOpen || Boolean(exampleDetails)
+    || functionBrowserOpen || Boolean(pendingImport) || memoryOpen || inspectorOpen
+    || provenanceOpen || fullInfoOpen || sequenceRunOpen;
+  const pwaUpdateSafe = canActivatePwaUpdate({
+    modalOpen: pwaModalOpen,
+    calculationStatus: calculation.status,
+    pendingHistoryCount: pendingHistory.length,
+    exportActive: Boolean(exportWorkerRef.current),
+    notebookOperationActive: Boolean(notebookOperationRef.current),
+  });
   const historyRows = useMemo(() => {
     const rows = [];
     if (pendingHistory.length) {
@@ -254,6 +301,19 @@ export function App() {
   // Keep the preview worker stable when unrelated History entries arrive. The
   // serialized payload changes only if this expression's actual inputs do.
   const workerReferences = useMemo(() => previewReferenceSnapshot.references, [previewReferenceSnapshot.key]);
+
+  useEffect(() => {
+    if (!pwaUpdateAvailable || !pwaUpdateSafe || pwaUpdateActivationRef.current) return undefined;
+    const updateSW = pwaUpdateRef.current;
+    if (!updateSW) return undefined;
+    const timer = window.setTimeout(() => {
+      if (pwaUpdateActivationRef.current) return;
+      workspacePersistenceRef.current?.flush();
+      pwaUpdateActivationRef.current = true;
+      updateSW(true);
+    }, pwaUpdateIdleDelay(lastPwaInteractionAt));
+    return () => window.clearTimeout(timer);
+  }, [lastPwaInteractionAt, pwaUpdateAvailable, pwaUpdateSafe]);
 
   function updatePreview(nextExpression) {
     setExpression(nextExpression);

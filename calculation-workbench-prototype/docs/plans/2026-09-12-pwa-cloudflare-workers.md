@@ -51,10 +51,11 @@ assets it names are activated as one version.
 
 ### 3. Safe automatic updates
 
-- [ ] Add a centralized idle predicate and a synchronous workspace-persistence
+- [x] Add a centralized idle predicate and a synchronous workspace-persistence
   flush before a reload.
-- [ ] Register update checks on focus, reconnect, and a throttled 16-hour timer.
-- [ ] Activate a waiting worker only when the idle predicate passes; retry later
+- [x] Register the intended update cadence: focus, reconnect, and a throttled
+  16-hour timer.
+- [x] Activate a waiting worker only when the idle predicate passes; retry later
   otherwise.
 - [ ] Test update deferral during a modal, an active calculation, and a queued
   History run.
