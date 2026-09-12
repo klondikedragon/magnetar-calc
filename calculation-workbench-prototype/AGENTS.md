@@ -46,3 +46,4 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - Palette buttons are selection-aware: parentheses wrap selections, unary functions wrap selections in a call, and postfix operators apply to selections. The memory chip is width-constrained so it cannot displace MC/M+/MR.
 - Positive exact-integer powers that exceed the exact expansion boundary remain structural power values. Their inspector may show only rule-backed digit and magnitude facts, with a provenance view for assumptions and sources.
 - The intended public deployment is `calc.magnetar.app` on Cloudflare Workers Static Assets. The calculator should be installable as an offline PWA on iPad, with no in-app Safari installation prompt for the initial family-and-friends release.
+- Material implementation plans live in `docs/plans/` and use the filename convention `YYYY-MM-DD-short-plan-theme.md`. Update their checklists as slices are completed.
