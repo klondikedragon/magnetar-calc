@@ -1,0 +1,5 @@
+# Keep repository text portable across Windows and Linux.
+* text=auto eol=lf
+
+# Preserve generated and source image bytes exactly.
+*.png binary
