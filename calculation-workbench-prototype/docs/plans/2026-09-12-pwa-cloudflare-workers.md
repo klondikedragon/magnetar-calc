@@ -42,10 +42,10 @@ assets it names are activated as one version.
 
 ### 2. Offline application shell
 
-- [ ] Add `vite-plugin-pwa` using Workbox `injectManifest` mode.
-- [ ] Precache the Vite application shell, calculator worker, local fonts, and
-  icons; provide an offline navigation fallback.
-- [ ] Keep the service-worker source small and explicit about what it caches.
+- [x] Add `vite-plugin-pwa` using Workbox `injectManifest` mode.
+- [x] Precache the Vite application shell, calculator worker, manifest, and
+  shipping icons; provide an offline navigation fallback.
+- [x] Keep the service-worker source small and explicit about what it caches.
 - [ ] Test first-load, offline restart, and offline calculation in a production
   preview.
 
