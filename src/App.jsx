@@ -15,7 +15,7 @@ import { canActivatePwaUpdate, createPwaUpdateCoordinator, pwaUpdateCheckInterva
 import { createValuePresentationCache } from "./presentationCache";
 import { createDefaultWorkspace } from "./seedWorkspace";
 import { useDismissiblePopover } from "./useDismissiblePopover";
-import { shouldRestoreEditorFocus } from "./interactionModality";
+import { resolveActionPointerType, shouldRestoreEditorFocus } from "./interactionModality";
 import { prepareWorkspaceHydration } from "./workspaceHydration";
 
 const HistoryChartDialog = lazy(() => import("./HistoryChartDialog"));
@@ -232,7 +232,7 @@ export function App() {
   // controlled value update, but focus must not.
   const focusExpression = () => expressionRef.current?.focus({ preventScroll: true });
   const shouldRestoreExpressionFocus = (event) => {
-    const pointerType = event?.nativeEvent?.pointerType || event?.pointerType || palettePointerTypeRef.current;
+    const pointerType = resolveActionPointerType(palettePointerTypeRef.current, event?.nativeEvent?.pointerType || event?.pointerType);
     return shouldRestoreEditorFocus(pointerType);
   };
   const restoreExpressionFocus = (event) => {
@@ -762,7 +762,7 @@ export function App() {
   }
 
   function appendKey(key, event) {
-    if (key === "f(x)") { openFunctionBrowser(); return; }
+    if (key === "f(x)") { palettePointerTypeRef.current = ""; openFunctionBrowser(); return; }
     if (key === "=") { commit(); restoreExpressionFocus(event); return; }
     if (key === "AC") { setExpression(""); setToast(""); restoreExpressionFocus(event); return; }
     if (key === "⌫") {
@@ -1209,6 +1209,7 @@ export function App() {
     examplePriorFocusRef.current = document.activeElement;
     setExampleQuery("");
     setExampleCategory("All");
+    if (narrowWorkbench && exampleView === "grid") setExampleView("detailed");
     setExampleDetails(null);
     setExamplesOpen(true);
   }
@@ -1391,7 +1392,7 @@ export function App() {
               <select className="mode-select" aria-label="Input mode" value={activeMode} onChange={(event) => setActiveMode(event.target.value)}>{modes.map((mode) => <option key={mode}>{mode}</option>)}</select>
             </div>
           </div>
-          <div className="keypad">{paletteKeys.flat().map((key, index) => <button key={`${key || "future"}-${index}`} aria-hidden={key === ""} tabIndex={key === "" ? -1 : undefined} disabled={key === ""} aria-label={paletteHelp[key] ?? keyLabels[key] ?? `Insert ${key}`} title={paletteHelp[key]} className={key === "" ? "key placeholder" : key === "=" ? "key equal" : ["AC", "⌫"].includes(key) ? "key utility" : ["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ", "sin", "cos", "tan", "ln", "log", "!", "π", "e", "τ", "φ", "abs", "mod", "%", "↑", "↑↑", "@n", "min", "max", "Fₙ", "Lₙ", "pₙ", "π(n)", "P(n)", "Cₙ", "Bₙ", "Tₙ", "Hₙ", "Jₙ", "Yₙ", "S(n,k)", "nCr", "F₁(n)", "F₂(n)", "F₃(n)", "F₄(n)", "F₅(n)"].includes(key) ? "key function" : "key"} onPointerDown={(event) => { palettePointerTypeRef.current = event.pointerType; }} onClick={(event) => appendKey(key, event)}>{key}</button>)}</div>
+          <div className="keypad" onPointerDownCapture={(event) => { palettePointerTypeRef.current = event.pointerType; }} onPointerCancel={() => { palettePointerTypeRef.current = ""; }}>{paletteKeys.flat().map((key, index) => <button key={`${key || "future"}-${index}`} aria-hidden={key === ""} tabIndex={key === "" ? -1 : undefined} disabled={key === ""} aria-label={paletteHelp[key] ?? keyLabels[key] ?? `Insert ${key}`} title={paletteHelp[key]} className={key === "" ? "key placeholder" : key === "=" ? "key equal" : ["AC", "⌫"].includes(key) ? "key utility" : ["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ", "sin", "cos", "tan", "ln", "log", "!", "π", "e", "τ", "φ", "abs", "mod", "%", "↑", "↑↑", "@n", "min", "max", "Fₙ", "Lₙ", "pₙ", "π(n)", "P(n)", "Cₙ", "Bₙ", "Tₙ", "Hₙ", "Jₙ", "Yₙ", "S(n,k)", "nCr", "F₁(n)", "F₂(n)", "F₃(n)", "F₄(n)", "F₅(n)"].includes(key) ? "key function" : "key"} onClick={(event) => appendKey(key, event)}>{key}</button>)}</div>
           <div className="shortcut-row"><span>Enter <b>save</b></span><span>Esc <b>clear</b></span><span>result click <b>inspect</b></span></div>
         </section>
         <div className="trail-panel" aria-hidden={narrowWorkbench ? !historyDrawerOpen : !historyDockOpen}>
