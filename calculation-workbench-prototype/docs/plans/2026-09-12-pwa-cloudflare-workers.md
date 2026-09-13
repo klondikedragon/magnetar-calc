@@ -62,12 +62,24 @@ assets it names are activated as one version.
 
 ### 4. Cloudflare Workers Static Assets
 
-- [ ] Add `wrangler.jsonc` for the client build output and SPA navigation
-  fallback.
-- [ ] Add static response headers: revalidate HTML, manifest, and service
-  worker; cache hashed build assets and icons immutably.
+- [x] Add `wrangler.toml` for the client build output and SPA navigation
+  fallback. The connected Cloudflare Worker must be named
+  `magnetar-calculator`.
+- [x] Add static response headers: revalidate HTML, manifest, and service
+  worker; cache hashed build assets immutably, and attach security headers from
+  the Worker because it handles asset responses.
 - [ ] Deploy a staging Worker, then bind `calc.magnetar.app` after verification.
 - [ ] Document rollback as redeploying the last known good Worker version.
+
+### 4a. Public-repository build policy
+
+- [x] Add an all-files `CODEOWNERS` rule requiring `@klondikedragon` review.
+- [ ] Protect `main` in GitHub: require pull requests and passing checks, and
+  disallow direct and force pushes.
+- [ ] Enable the production Worker build for `main` only.
+- [ ] Enable non-production branch previews only for trusted repository branches.
+  Do not enable untrusted fork builds until their build-token isolation is
+  explicitly confirmed in the Cloudflare account configuration.
 
 ### 5. Release verification
 

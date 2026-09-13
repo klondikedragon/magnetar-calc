@@ -3,6 +3,8 @@ calculation-workbench-prototype/node_modules/
 calculation-workbench-prototype/dist/
 calculation-workbench-prototype/.npm-cache/
 calculation-workbench-prototype/coverage/
+calculation-workbench-prototype/.wrangler/
+calculation-workbench-prototype/.dev.vars*
 
 # Local logs and editor/system files
 *.log
