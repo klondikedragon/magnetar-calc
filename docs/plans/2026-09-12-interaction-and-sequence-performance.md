@@ -86,17 +86,17 @@ must be preserved throughout.
 
 ### 5. Consolidate and optimize sequence evaluation
 
-- [ ] Define one authoritative implementation path used by exact and fallback
+- [x] Define one authoritative implementation path used by exact and fallback
   engines.
-- [ ] Use direct algorithms where they dominate caching: fast doubling for
+- [x] Use direct algorithms where they dominate caching: fast doubling for
   Fibonacci/Lucas, a direct integer formula for Jacobsthal, O(1) triangular,
   and O(log n) Stern.
-- [ ] Use bounded incremental caches where sequential reuse is valuable:
+- [x] Use bounded incremental caches where sequential reuse is valuable:
   Catalan, partition, Bell, harmonic, prime/nth-prime, Yellowstone, and Recaman.
-- [ ] Give every retained cache an explicit term and estimated-memory policy.
-- [ ] Review Yellowstone candidate selection separately; its retained prefix
+- [x] Give every retained cache an explicit term and estimated-memory policy.
+- [x] Review Yellowstone candidate selection separately; its retained prefix
   prevents recomputation but its candidate scan still needs scaling evidence.
-- [ ] Add oracle prefixes, recurrence/property tests, cache-boundary tests, and
+- [x] Add oracle prefixes, recurrence/property tests, cache-boundary tests, and
   repeated-sequential-call benchmarks.
 
 ### 6. Integrated verification
@@ -120,11 +120,12 @@ must be preserved throughout.
 
 ## Residual design questions
 
-- Yellowstone may need an indexed candidate structure rather than a generic
-  append-only cache to scale beyond its present 10,000-term boundary.
-- Exact harmonic, Bell, and partition caches can retain very large BigInts;
-  their policies must be based on estimated retained bytes, not term count
-  alone.
+- Yellowstone's current candidate scan built 1,000 terms in about 17 ms and
+  all 10,000 supported terms in about 1.38 s on the development machine. An
+  indexed candidate structure is therefore deferred until the supported range
+  grows or slower-device evidence justifies it.
+- Exact harmonic, Bell, and partition caches now share both a 2,000-term bound
+  and a 32 MiB estimated retained-memory boundary.
 - A future component boundary around the result, palette, and History would
   further isolate renders, but the measured hot paths should be removed before
   undertaking that larger UI refactor.

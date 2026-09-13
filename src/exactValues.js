@@ -1,10 +1,7 @@
-import { yellowstoneTerm } from "./yellowstone.js";
-
 // Exact values are deliberately separate from Decimal.js. They retain the
 // mathematical result as BigInt components and only become an approximation
 // when a caller explicitly asks for one.
-import { recamanTerm } from "./recaman.js";
-import { sternTerm } from "./stern.js";
+import { sequenceValue } from "./sequenceValues.js";
 
 // This is an expansion budget, not a precision setting. One hundred thousand
 // decimal digits is still compact enough for the worker and lets ordinary
@@ -183,59 +180,19 @@ function exactSquareRoot(value) {
 
 function sequence(implementationId, args) {
   const n = natural(args[0], implementationId === "sequence-nth-prime" || implementationId === "sequence-recaman" ? 100_000 : implementationId === "sequence-stern" ? 1_000_000 : implementationId === "sequence-yellowstone" ? 10_000 : 2_000);
-  if (implementationId === "sequence-fibonacci" || implementationId === "sequence-lucas" || implementationId === "sequence-jacobsthal") {
-    let a = implementationId === "sequence-lucas" ? 2n : 0n;
-    let b = 1n;
-    for (let index = 0; index < n; index += 1) [a, b] = [b, implementationId === "sequence-jacobsthal" ? b + (2n * a) : a + b];
-    return exactInteger(a);
-  }
-  if (implementationId === "sequence-triangular") return exactInteger((BigInt(n) * BigInt(n + 1)) / 2n);
-  if (implementationId === "sequence-catalan") {
-    let result = 1n;
-    for (let index = 0; index < n; index += 1) result = (result * BigInt(2 * ((2 * index) + 1))) / BigInt(index + 2);
-    return exactInteger(result);
-  }
-  if (implementationId === "combinatorics-binomial") {
-    const k = natural(args[1], n);
-    if (k > n) throw new Error("binomial requires k <= n");
-    let result = 1n;
-    for (let index = 1; index <= Math.min(k, n - k); index += 1) result = (result * BigInt(n - index + 1)) / BigInt(index);
-    return exactInteger(result);
-  }
-  if (implementationId === "combinatorics-stirling-second") {
-    const k = natural(args[1], n);
-    const rows = Array(k + 1).fill(0n);
-    rows[0] = 1n;
-    for (let row = 1; row <= n; row += 1) {
-      for (let column = Math.min(row, k); column >= 2; column -= 1) rows[column] = rows[column - 1] + (BigInt(column) * rows[column]);
-      if (k >= 1) rows[1] = 1n;
-    }
-    return exactInteger(rows[k]);
-  }
-  if (implementationId === "sequence-partition") {
-    const values = Array(n + 1).fill(0n);
-    values[0] = 1n;
-    for (let part = 1; part <= n; part += 1) for (let total = part; total <= n; total += 1) values[total] += values[total - part];
-    return exactInteger(values[n]);
-  }
-  if (implementationId === "sequence-bell") {
-    let row = [1n];
-    for (let index = 1; index <= n; index += 1) {
-      const next = [row.at(-1)];
-      for (let column = 1; column <= index; column += 1) next.push(next[column - 1] + row[column - 1]);
-      row = next;
-    }
-    return exactInteger(row[0]);
-  }
-  if (implementationId === "sequence-harmonic") {
-    let result = exactInteger(0);
-    for (let index = 1; index <= n; index += 1) result = add(result, exactRational(1n, BigInt(index)));
-    return result;
-  }
-  if (implementationId === "sequence-yellowstone") return exactInteger(yellowstoneTerm(n));
-  if (implementationId === "sequence-recaman") return exactInteger(recamanTerm(n));
-  if (implementationId === "sequence-stern") return exactInteger(sternTerm(n));
-  notExact();
+  const names = {
+    "sequence-fibonacci": "fib", "sequence-lucas": "lucas", "sequence-jacobsthal": "jacobsthal",
+    "sequence-triangular": "triangular", "sequence-catalan": "catalan", "sequence-partition": "partition",
+    "sequence-bell": "bell", "sequence-harmonic": "harmonic", "sequence-yellowstone": "yellowstone",
+    "sequence-recaman": "recaman", "sequence-stern": "stern", "sequence-nth-prime": "prime",
+    "sequence-prime-count": "primepi", "combinatorics-binomial": "binomial",
+    "combinatorics-stirling-second": "stirling2",
+  };
+  const name = names[implementationId];
+  if (!name) notExact();
+  const k = implementationId.startsWith("combinatorics-") ? natural(args[1], n) : null;
+  const value = sequenceValue(name, n, k);
+  return value.kind === "rational" ? exactRational(value.numerator, value.denominator) : exactInteger(value.value);
 }
 
 function referenceValue(token, references) {
