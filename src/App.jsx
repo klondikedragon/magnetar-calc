@@ -6,7 +6,7 @@ import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, export
 import { createNotebook, validateNotebook } from "./notebook";
 import { exampleCategories, filterExampleCatalog, sortExampleCatalog } from "./exampleCatalog";
 import { filterFunctionCatalog, functionCategories, functionInsertion } from "./functionCatalog";
-import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryBatch, rebuildHistoryLedger, recoverOrphanedHistoryWork, transitionHistoryEntry } from "./historyLedger";
+import { appendHistoryEntries, appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryBatch, rebuildHistoryLedger, recoverOrphanedHistoryWork, transitionHistoryEntry } from "./historyLedger";
 import { historyReferenceEntries } from "./historyReferences";
 import { createHistoryQueueDiagnostics } from "./historyQueueDiagnostics";
 import { createCoalescedPersistence } from "./coalescedPersistence";
@@ -639,13 +639,14 @@ export function App() {
       setTimeout(() => setToast(""), 1800);
       return;
     }
-    let nextHistory = historyRef.current;
     const firstId = nextIdRef.current;
+    const entries = [];
     for (let offset = 0; offset < count; offset += 1) {
       const id = nextIdRef.current;
       nextIdRef.current += 1;
-      nextHistory = appendHistoryEntry(nextHistory, { id, expression: source });
+      entries.push({ id, expression: source });
     }
+    const nextHistory = appendHistoryEntries(historyRef.current, entries);
     historyRef.current = nextHistory;
     setHistory(nextHistory);
     setNextId(nextIdRef.current);

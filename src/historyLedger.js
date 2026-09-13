@@ -12,34 +12,51 @@ function sameReferences(left = [], right = []) {
   return left.length === right.length && left.every((item, index) => item.token === right[index].token && item.targetId === right[index].targetId);
 }
 
-export function describeHistoryEntry(history, entry) {
-  const before = ordered(history);
-  const byId = new Map(before.map((item) => [item.id, item]));
+function descriptionContext(history) {
+  const chronological = ordered(history);
+  return { chronological, byId: new Map(chronological.map((item) => [item.id, item])) };
+}
+
+function describeWithContext(context, entry) {
   const references = [];
   let blockedReason = null;
   for (const token of referencesIn(entry.expression)) {
     if (token === "@n") { references.push({ token, targetId: null }); continue; }
     const relative = token.match(/^@history\(-([1-9]\d*)\)$/);
     const stable = token.match(/^@history\(([1-9]\d*)\)$/);
-    const target = relative ? before[before.length - Number(relative[1])] : stable ? byId.get(Number(stable[1])) : null;
+    const target = relative
+      ? context.chronological[context.chronological.length - Number(relative[1])]
+      : stable ? context.byId.get(Number(stable[1])) : null;
     if (!target) blockedReason ??= `${token} is not available`;
     references.push({ token, targetId: target?.id ?? null });
   }
   return {
     ...entry,
-    ordinal: before.length + 1,
+    ordinal: context.chronological.length + 1,
     references,
     usesSequencePosition: references.some((reference) => reference.token === "@n"),
     blockedReason,
   };
 }
 
+export function describeHistoryEntry(history, entry) {
+  return describeWithContext(descriptionContext(history), entry);
+}
+
 export function appendHistoryEntry(history, entry) {
-  const described = describeHistoryEntry(history, entry);
-  return [
-    { ...described, revision: 1, state: described.blockedReason ? "blocked" : "queued", value: null, error: described.blockedReason },
-    ...history,
-  ];
+  return appendHistoryEntries(history, [entry]);
+}
+
+export function appendHistoryEntries(history, entries) {
+  if (!entries.length) return history;
+  const context = descriptionContext(history);
+  for (const entry of entries) {
+    const described = describeWithContext(context, entry);
+    const appended = { ...described, revision: 1, state: described.blockedReason ? "blocked" : "queued", value: null, error: described.blockedReason };
+    context.chronological.push(appended);
+    context.byId.set(appended.id, appended);
+  }
+  return context.chronological.reverse();
 }
 
 export function rebuildHistoryLedger(history) {
@@ -53,7 +70,10 @@ export function rebuildHistoryLedger(history) {
 }
 
 export function workerReferencesForEntry(history, entry) {
-  const byId = new Map(history.map((item) => [item.id, item]));
+  return workerReferencesFromIndex(new Map(history.map((item) => [item.id, item])), entry);
+}
+
+function workerReferencesFromIndex(byId, entry) {
   const missing = entry.references.find((reference) => reference.targetId !== null && byId.get(reference.targetId)?.state !== "completed");
   if (missing) {
     const dependency = byId.get(missing.targetId);
@@ -90,15 +110,24 @@ export function nextHistoryWork(history) {
 // @n-only sequence entries, on the other hand, already have every input they
 // need and can share a worker/cache without changing their semantics.
 export function nextHistoryBatch(history, maximumSize = 64) {
-  const first = nextHistoryWork(history);
+  const chronology = ordered(history);
+  const byId = new Map(history.map((item) => [item.id, item]));
+  const firstEntry = chronology.find((item) => item.state === "queued" || item.state === "dirty" || item.state === "computing");
+  if (!firstEntry) return { kind: "empty" };
+  if (firstEntry.state === "computing") return { kind: "computing", entry: firstEntry };
+  const firstPayload = workerReferencesFromIndex(byId, firstEntry);
+  const first = firstPayload.waiting
+    ? { kind: "waiting", entry: firstEntry }
+    : firstPayload.blocked
+      ? { kind: "blocked", entry: firstEntry, error: firstPayload.blocked }
+      : { kind: "ready", entry: firstEntry, references: firstPayload.references };
   if (first.kind !== "ready") return first;
   const jobs = [first];
-  const chronology = ordered(history);
   const firstIndex = chronology.findIndex((entry) => entry.id === first.entry.id);
   for (const entry of chronology.slice(firstIndex + 1)) {
     if (jobs.length >= maximumSize) break;
     if (entry.state !== "queued" && entry.state !== "dirty") break;
-    const payload = workerReferencesForEntry(history, entry);
+    const payload = workerReferencesFromIndex(byId, entry);
     if (payload.waiting || payload.blocked) break;
     jobs.push({ kind: "ready", entry, references: payload.references });
   }

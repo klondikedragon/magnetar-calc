@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryBatch, nextHistoryWork, recoverOrphanedHistoryWork, transitionHistoryEntry, workerReferencesForEntry } from "../src/historyLedger.js";
+import { appendHistoryEntries, appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryBatch, nextHistoryWork, recoverOrphanedHistoryWork, transitionHistoryEntry, workerReferencesForEntry } from "../src/historyLedger.js";
 
 const complete = (id, expression, value) => ({ id, expression, value, state: "completed", ordinal: id, references: [], usesSequencePosition: false, error: null });
 
@@ -10,6 +10,17 @@ test("mints an ID immediately and resolves only an entry's needed worker referen
   assert.equal(next[0].id, 3);
   assert.equal(next[0].state, "queued");
   assert.deepEqual(workerReferencesForEntry(next, next[0]).references, [["@history(-1)", "2"], ["@n", "3"]]);
+});
+
+test("bulk append preserves single-append dependency semantics", () => {
+  const entries = [
+    { id: 1, expression: "1" },
+    { id: 2, expression: "@history(-1) + @n" },
+    { id: 3, expression: "@history(1) + @history(-1)" },
+  ];
+  let incremental = [];
+  for (const entry of entries) incremental = appendHistoryEntry(incremental, entry);
+  assert.deepEqual(appendHistoryEntries([], entries), incremental);
 });
 
 test("deletion dirties dynamic sequence entries and their dependants", () => {
