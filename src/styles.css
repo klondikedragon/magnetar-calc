@@ -206,7 +206,33 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
 .fatal-error-shell { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: #f4f5ef; }.fatal-error-card { width: min(680px, 100%); padding: clamp(18px, 3vw, 28px); border: 1px solid #dfb8b3; border-radius: 11px; background: #fffefa; box-shadow: 0 15px 42px rgba(62, 40, 37, .14); color: #4f5b5b; }.fatal-error-card h1 { margin: 4px 0 10px; color: #3c4849; font-size: clamp(20px, 3vw, 28px); }.fatal-error-card p { line-height: 1.45; }.fatal-error-card details { margin: 16px 0; border: 1px solid #e5d2cf; border-radius: 6px; padding: 8px 10px; background: #fffaf8; }.fatal-error-card summary { cursor: pointer; color: #8c4a43; font-size: 11px; font-weight: 700; }.fatal-error-card pre { max-height: min(38dvh, 310px); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #5f5150; font: 10px/1.4 "DM Mono", monospace; }.fatal-error-card > button { border: 1px solid #dcc6c1; border-radius: 5px; background: #fff; color: #7c4943; padding: 6px 9px; font: 600 11px "DM Sans", sans-serif; }.fatal-error-card > button:hover { background: #fbeeea; }
 
 @media (max-width: 700px) {
-  .workbench { padding: 8px; }
+  .workbench {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-right: max(8px, env(safe-area-inset-right));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    padding-left: max(8px, env(safe-area-inset-left));
+  }
+  .result-line { min-width: 0; }
+  .result-wrap { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+  .number-result {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+  }
+  .number-result > span:not(.sign):not(.result-exponent) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .number-result:has(.tower-detail),
+  .number-result:has(.tower-collapsed) { overflow: hidden; }
+  .number-result:has(.tower-detail) > .tower-detail,
+  .number-result:has(.tower-collapsed) > .tower-collapsed {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .calculation-status, .toast { flex: 0 0 auto; }
   .desk, .desk.history-dock-closed {
     grid-template-columns: minmax(0, 1fr) 30px;
     gap: 0;
@@ -234,4 +260,17 @@ button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-
   .sequence-run-count input,
   input[type="search"],
   input[type="number"] { font-size: 16px; }
+
+  .notebook-overlay,
+  .memory-overlay,
+  .history-chart-overlay,
+  .function-browser-overlay,
+  .full-info-overlay,
+  .example-browser-overlay,
+  .example-details-overlay {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-right: max(8px, env(safe-area-inset-right));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    padding-left: max(8px, env(safe-area-inset-left));
+  }
 }
