@@ -13,6 +13,10 @@
 .desk { grid-template-columns: minmax(0, 1.12fr) minmax(300px, .88fr); }
 .mode-select { margin-top: 3px; border: 0; background: transparent; color: #263137; font-weight: 700; font-size: clamp(16px, 1.5vw, 19px); letter-spacing: -.045em; padding: 0 20px 0 0; }
 .mode-select:focus { outline: 2px solid #b7d852; outline-offset: 3px; border-radius: 3px; }
+.palette-heading { display: flex; align-items: flex-start; justify-content: space-between; min-height: 44px; padding-bottom: 12px; }
+.palette-brand-icon { width: 40px; height: 40px; border-radius: 10px; box-shadow: 0 2px 7px rgba(29, 43, 51, .13); }
+.palette-controls { min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.palette-controls .mode-select { margin-top: 0; }
 .expression-status { position: fixed; top: 10px; right: 14px; z-index: 4; color: #8a5b36; background: #fff8ee; border: 1px solid #efd8bd; border-radius: 999px; padding: 5px 9px; font-size: 10px; box-shadow: 0 3px 12px rgba(57, 42, 26, .08); }
 .status-dot { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: #d88b45; }
 .memory-indicator { position: fixed; top: 10px; left: 14px; z-index: 4; border: 1px solid #d6dfb4; border-radius: 999px; background: #f6f9e9; color: #5f7520; padding: 5px 9px; font: 10px "DM Mono", monospace; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
