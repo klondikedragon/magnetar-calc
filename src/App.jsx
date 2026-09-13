@@ -8,6 +8,7 @@ import { exampleCategories, filterExampleCatalog, sortExampleCatalog } from "./e
 import { filterFunctionCatalog, functionCategories, functionInsertion } from "./functionCatalog";
 import { appendHistoryEntries, appendHistoryEntry, invalidateAfterHistoryDeletion, nextHistoryBatch, rebuildHistoryLedger, recoverOrphanedHistoryWork, transitionHistoryEntry } from "./historyLedger";
 import { historyReferenceEntries } from "./historyReferences";
+import { createHistoryWorkerRequest, mergeHistoryResults } from "./historyExecution";
 import { createHistoryQueueDiagnostics } from "./historyQueueDiagnostics";
 import { createCoalescedPersistence } from "./coalescedPersistence";
 import { canActivatePwaUpdate, createPwaUpdateCoordinator, pwaUpdateCheckIntervalMs } from "./pwaUpdatePolicy";
@@ -434,16 +435,11 @@ export function App() {
   function finishHistoryQueueBatch(results) {
     const completed = new Map(results
       .filter((result) => result.type === "result")
-      .map((result) => [`${result.id}:${result.revision}`, deserializeValue(result.value)]));
+      .map((result) => [`${result.id}:${result.revision}`, true]));
     const failures = new Map(results
       .filter((result) => result.type === "error")
       .map((result) => [`${result.id}:${result.revision}`, calculationErrorMessage(result.message)]));
-    const nextHistory = historyRef.current.map((entry) => {
-      const key = `${entry.id}:${entry.revision}`;
-      if (completed.has(key)) return { ...entry, state: "completed", value: completed.get(key), error: null };
-      if (failures.has(key)) return { ...entry, state: "failed", value: null, error: failures.get(key) };
-      return entry;
-    });
+    const nextHistory = mergeHistoryResults(historyRef.current, results, deserializeValue, calculationErrorMessage);
     historyRef.current = nextHistory;
     setHistory(nextHistory);
     if (completed.size) {
@@ -593,20 +589,7 @@ export function App() {
       queueMicrotask(processHistoryQueue);
     };
     worker.onmessageerror = () => requeueHistoryRun(run, "worker message could not be read");
-    if (workItems.length === 1) {
-      worker.postMessage({ jobId, expression: nextItem.expression, references: work.references.map(([token, value]) => [token, serializeValue(value)]), options: { precision } });
-      return;
-    }
-    worker.postMessage({
-      jobId,
-      jobs: workItems.map((item) => ({
-        id: item.entry.id,
-        revision: item.entry.revision,
-        expression: item.entry.expression,
-        references: item.references.map(([token, value]) => [token, serializeValue(value)]),
-        options: { precision },
-      })),
-    });
+    worker.postMessage({ jobId, ...createHistoryWorkerRequest(work, { precision }) });
   }
 
   function commit() {
@@ -955,59 +938,95 @@ export function App() {
   }
 
   function startNotebookOperation(status) {
-    const operation = { cancelled: false, worker: null };
+    const operation = { cancelled: false, worker: null, cancelPending: null, jobId: 0 };
     notebookOperationRef.current = operation;
     setTransferStatus(status);
     return operation;
+  }
+
+  function finishNotebookOperation(operation) {
+    operation.worker?.terminate();
+    operation.worker = null;
+    operation.cancelPending = null;
+    if (notebookOperationRef.current === operation) notebookOperationRef.current = null;
   }
 
   function cancelNotebookOperation() {
     const operation = notebookOperationRef.current;
     if (!operation) return;
     operation.cancelled = true;
-    operation.worker?.terminate();
-    operation.reject?.(new Error("cancelled"));
-    notebookOperationRef.current = null;
+    operation.cancelPending?.();
+    finishNotebookOperation(operation);
     setTransferStatus("Notebook operation cancelled");
     setTimeout(() => setTransferStatus(""), 1800);
   }
 
-  function calculateNotebookExpression(operation, source, references, options = {}) {
+  function runNotebookWorker(operation, payload) {
     return new Promise((resolve, reject) => {
-      const worker = new Worker(new URL("./calculation-worker.js", import.meta.url), { type: "module" });
-      operation.worker = worker;
-      operation.reject = reject;
-      const deadline = setTimeout(() => {
-        worker.terminate();
-        if (operation.worker === worker) { operation.worker = null; operation.reject = null; }
-        reject(new Error("calculation reached its time budget"));
-      }, 10000);
-      worker.onmessage = ({ data }) => {
+      if (operation.cancelled) { reject(new Error("cancelled")); return; }
+      const worker = operation.worker ?? new Worker(new URL("./calculation-worker.js", import.meta.url), { type: "module" });
+      operation.worker ??= worker;
+      const jobId = ++operation.jobId;
+      let settled = false;
+      const finish = (callback, value, terminate = false) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(deadline);
-        worker.terminate();
-        if (operation.cancelled || notebookOperationRef.current !== operation) { reject(new Error("cancelled")); return; }
-        operation.worker = null;
-        operation.reject = null;
-        if (data.type === "error") { reject(new Error(data.message ?? "calculation failed")); return; }
-        resolve(deserializeValue(data.value));
+        worker.onmessage = null;
+        worker.onerror = null;
+        worker.onmessageerror = null;
+        operation.cancelPending = null;
+        if (terminate) {
+          worker.terminate();
+          if (operation.worker === worker) operation.worker = null;
+        }
+        callback(value);
       };
-      worker.postMessage({ expression: source, references, options });
+      const deadline = setTimeout(() => {
+        finish(reject, new Error("calculation reached its time budget"), true);
+      }, 10000);
+      operation.cancelPending = () => finish(reject, new Error("cancelled"), true);
+      worker.onmessage = ({ data }) => {
+        if (data.jobId !== jobId) return;
+        if (operation.cancelled || notebookOperationRef.current !== operation) { finish(reject, new Error("cancelled"), true); return; }
+        finish(resolve, data);
+      };
+      worker.onerror = (event) => finish(reject, event.error ?? new Error(event.message || "calculation worker failed"), true);
+      worker.onmessageerror = () => finish(reject, new Error("calculation worker result could not be read"), true);
+      worker.postMessage({ jobId, ...payload });
     });
   }
 
+  async function calculateNotebookExpression(operation, source, references, options = {}) {
+    const data = await runNotebookWorker(operation, { expression: source, references, options });
+    if (data.type === "error") throw new Error(data.message ?? "calculation failed");
+    return deserializeValue(data.value);
+  }
+
+  async function calculateNotebookHistoryBatch(operation, batch, options = {}) {
+    const data = await runNotebookWorker(operation, createHistoryWorkerRequest(batch, options));
+    if (data.type !== "batch-result" || data.results?.length !== batch.jobs.length) throw new Error("calculation worker returned an incomplete History batch");
+    return data.results;
+  }
+
   async function recomputeNotebookHistory(operation, entries, options = {}) {
-    let recomputed = [];
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const chronological = entries.slice().reverse().map(({ id, expression }) => ({ id, expression }));
+    let recomputed = appendHistoryEntries([], chronological);
+    let completed = 0;
+    while (completed < entries.length) {
       if (operation.cancelled) throw new Error("cancelled");
-      const entry = entries[index];
-      setTransferStatus(`Recomputing History ${entries.length - index} of ${entries.length}…`);
-      try {
-        const value = await calculateNotebookExpression(operation, entry.expression, historyReferences(recomputed), options);
-        recomputed = [{ id: entry.id, expression: entry.expression, value }, ...recomputed];
-      } catch (error) {
-        if (error.message === "cancelled") throw error;
-        throw new Error(`@history(${entry.id}) could not be recalculated: ${calculationErrorMessage(error.message)}`);
+      const batch = nextHistoryBatch(recomputed, 512);
+      if (batch.kind === "empty") break;
+      if (batch.kind !== "ready") {
+        const error = batch.error ?? `History execution stopped in ${batch.kind} state`;
+        throw new Error(`@history(${batch.entry?.id ?? "?"}) could not be recalculated: ${calculationErrorMessage(error)}`);
       }
+      setTransferStatus(`Recomputing History ${completed + 1}–${completed + batch.jobs.length} of ${entries.length}…`);
+      const results = await calculateNotebookHistoryBatch(operation, batch, options);
+      const failure = results.find((result) => result.type === "error");
+      recomputed = mergeHistoryResults(recomputed, results, deserializeValue, calculationErrorMessage);
+      if (failure) throw new Error(`@history(${failure.id}) could not be recalculated: ${calculationErrorMessage(failure.message)}`);
+      completed += results.length;
     }
     return recomputed;
   }
@@ -1040,7 +1059,7 @@ export function App() {
       let activeValue = null;
       if (expression.trim()) {
         setTransferStatus("Recomputing active expression…");
-        activeValue = await calculateNotebookExpression(operation, expression, historyReferences(recalculatedHistory), { calculationPrecision: exportPrecision });
+        activeValue = await calculateNotebookExpression(operation, expression, historyReferences(recalculatedHistory, { expression, ordinal: recalculatedHistory.length + 1 }), { calculationPrecision: exportPrecision });
       }
       if (operation.cancelled) throw new Error("cancelled");
       await downloadNotebook(createNotebook({ expression, previewValue: activeValue, includeActiveAnswer: Boolean(activeValue), history: recalculatedHistory, nextId, view: currentViewSettings(), includeView: exportView, includeAnswers: true, highPrecision: true }), saveHandle);
@@ -1049,7 +1068,7 @@ export function App() {
     } catch (error) {
       if (error.message !== "cancelled") { setTransferStatus(error.message || "Notebook export could not be completed"); setTimeout(() => setTransferStatus(""), 3000); }
     } finally {
-      if (notebookOperationRef.current === operation) notebookOperationRef.current = null;
+      finishNotebookOperation(operation);
     }
   }
 
@@ -1104,7 +1123,7 @@ export function App() {
     } catch (error) {
       if (error.message !== "cancelled") { setTransferStatus(error.message || "Notebook import could not be completed"); setTimeout(() => setTransferStatus(""), 3200); }
     } finally {
-      if (notebookOperationRef.current === operation) notebookOperationRef.current = null;
+      finishNotebookOperation(operation);
     }
   }
 

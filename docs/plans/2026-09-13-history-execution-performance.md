@@ -38,35 +38,59 @@ worker-per-entry architecture.
 
 - [x] Add a one-pass bulk append operation.
 - [x] Build dependency lookup indexes once per scheduling pass.
-- [ ] Resolve only tokens actually requested by an expression.
-- [ ] Preserve stable IDs, relative-reference binding, `@n`, deletion
+- [x] Resolve only tokens actually requested by an expression.
+- [x] Preserve stable IDs, relative-reference binding, `@n`, deletion
   invalidation, and import rebuilding semantics.
 - [ ] Add scaling benchmarks that include enqueue time.
 
 ### 2. Dependency-aware worker batches
 
-- [ ] Represent a chronological batch as jobs with resolved dependency IDs.
-- [ ] Resolve dependencies produced earlier in the same batch inside the
+- [x] Represent a chronological batch as jobs with resolved dependency IDs.
+- [x] Resolve dependencies produced earlier in the same batch inside the
   worker.
-- [ ] Carry independent failures without silently evaluating dependants.
-- [ ] Keep cancellation immediate by terminating the operation worker.
-- [ ] Add pure worker-program tests for independent and dependent jobs.
+- [x] Carry independent failures without silently evaluating dependants.
+- [x] Keep cancellation immediate by terminating the operation worker.
+- [x] Add pure worker-program tests for independent and dependent jobs.
 
 ### 3. Unify queue and notebook execution
 
-- [ ] Use the same batch protocol for ordinary History and imported notebooks.
-- [ ] Keep one worker alive for an import/export operation.
-- [ ] Send only external values actually referenced by a batch.
-- [ ] Commit results and progress in bounded chunks rather than per entry.
-- [ ] Ensure imported answers remain untrusted and are always recomputed.
+- [x] Use the same batch protocol for ordinary History and imported notebooks.
+- [x] Keep one worker alive for an import/export operation.
+- [x] Send only external values actually referenced by a batch.
+- [x] Commit results and progress in bounded chunks rather than per entry.
+- [x] Ensure imported answers remain untrusted and are always recomputed.
 
 ### 4. Verification
 
-- [ ] Cover cancellation, errors, relative references, stable references,
+- [x] Cover cancellation, errors, relative references, stable references,
   `@n`, file imports, examples, and repeated saves.
-- [ ] Require near-linear scaling at 100, 1,000, and 10,000 entries with
+- [x] Require near-linear scaling at 100, 1,000, and 10,000 entries with
   deliberately generous CI-safe timing ceilings.
-- [ ] Measure both independent sequences and dependent recurrences in the
+- [x] Measure both independent sequences and dependent recurrences in the
   browser.
-- [ ] Run the complete Node 24 suite, oracle tests, production PWA build, and
+- [x] Run the complete Node 24 suite, oracle tests, production PWA build, and
   Cloudflare worker tests.
+
+## Verification results
+
+- 10,000-entry bulk enqueue improved from about 3.84 s to 15–29 ms.
+- 10,000-entry non-UX History execution improved from about 10.38 s to
+  1.93–1.95 s, including Yellowstone calculation, in 20 bounded batches.
+- The 100-entry Fibonacci example import improved from about 7.46 s to
+  543 ms in the development browser.
+- A normal 100-entry dependent recurrence improved from about 1.85 s to
+  287 ms in the development browser.
+- The 1,000-entry Yellowstone example imported and recalculated in about
+  312 ms in the development browser.
+- The timing regression test constructs and schedules 10,000 entries in about
+  71 ms on the development machine, with deliberately generous CI ceilings.
+- The complete Node 24 test suite, SymPy/mpmath oracles, and Cloudflare route
+  tests pass. Production PWA build verification is recorded with the final
+  commit.
+
+## Residual work
+
+- Rendering or inspecting a newly inserted 10,000-row History can still create
+  browser-main-thread pressure even though ledger construction and calculation
+  are bounded. Profile React/Virtuoso mounting separately if real-device
+  evidence shows this remains visible after the execution fixes.

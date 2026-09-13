@@ -1,4 +1,5 @@
 import { deserializeValue, evaluateWithAnalysis, serializeValue } from "./engine";
+import { evaluateHistoryJobs } from "./historyExecution";
 
 function evaluateJob({ expression, references = [], options = {} }) {
   const restoredReferences = new Map(references.map(([token, value]) => [token, value?.kind === "number" ? String(value.number) : deserializeValue(value)]));
@@ -6,15 +7,12 @@ function evaluateJob({ expression, references = [], options = {} }) {
 }
 
 self.onmessage = ({ data }) => {
-  const { jobId, expression, references = [], options = {}, jobs } = data;
-  if (Array.isArray(jobs)) {
-    const results = jobs.map((job) => {
-      try {
-        return { id: job.id, revision: job.revision, type: "result", value: evaluateJob(job) };
-      } catch (error) {
-        return { id: job.id, revision: job.revision, type: "error", message: error?.message ?? "Calculation failed" };
-      }
-    });
+  const { jobId, expression, references = [], options = {}, historyJobs, historyValues = [] } = data;
+  if (Array.isArray(historyJobs)) {
+    const initialValues = new Map(historyValues.map(([id, value]) => [id, deserializeValue(value)]));
+    const results = evaluateHistoryJobs(historyJobs, initialValues).map((result) => result.type === "result"
+      ? { ...result, value: serializeValue(result.value) }
+      : result);
     self.postMessage({ type: "batch-result", jobId, results });
     return;
   }

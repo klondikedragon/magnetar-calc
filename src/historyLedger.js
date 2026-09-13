@@ -115,23 +115,35 @@ export function nextHistoryBatch(history, maximumSize = 64) {
   const firstEntry = chronology.find((item) => item.state === "queued" || item.state === "dirty" || item.state === "computing");
   if (!firstEntry) return { kind: "empty" };
   if (firstEntry.state === "computing") return { kind: "computing", entry: firstEntry };
-  const firstPayload = workerReferencesFromIndex(byId, firstEntry);
-  const first = firstPayload.waiting
-    ? { kind: "waiting", entry: firstEntry }
-    : firstPayload.blocked
-      ? { kind: "blocked", entry: firstEntry, error: firstPayload.blocked }
-      : { kind: "ready", entry: firstEntry, references: firstPayload.references };
-  if (first.kind !== "ready") return first;
-  const jobs = [first];
-  const firstIndex = chronology.findIndex((entry) => entry.id === first.entry.id);
-  for (const entry of chronology.slice(firstIndex + 1)) {
+  const firstIndex = chronology.findIndex((entry) => entry.id === firstEntry.id);
+  const jobs = [];
+  const scheduled = new Set();
+  const externalValues = new Map();
+  for (const entry of chronology.slice(firstIndex)) {
     if (jobs.length >= maximumSize) break;
     if (entry.state !== "queued" && entry.state !== "dirty") break;
-    const payload = workerReferencesFromIndex(byId, entry);
-    if (payload.waiting || payload.blocked) break;
-    jobs.push({ kind: "ready", entry, references: payload.references });
+    if (entry.blockedReason) {
+      if (!jobs.length) return { kind: "blocked", entry, error: entry.blockedReason };
+      break;
+    }
+    let unavailable = null;
+    for (const reference of entry.references) {
+      if (reference.targetId === null || scheduled.has(reference.targetId)) continue;
+      const target = byId.get(reference.targetId);
+      if (target?.state === "completed") externalValues.set(target.id, target.value);
+      else unavailable = target?.state === "queued" || target?.state === "dirty" || target?.state === "computing"
+        ? { kind: "waiting", entry }
+        : { kind: "blocked", entry, error: `@history(${reference.targetId}) did not complete` };
+      if (unavailable) break;
+    }
+    if (unavailable) {
+      if (!jobs.length) return unavailable;
+      break;
+    }
+    jobs.push({ entry, references: entry.references });
+    scheduled.add(entry.id);
   }
-  return { kind: "ready", entry: first.entry, references: first.references, jobs };
+  return { kind: "ready", entry: jobs[0].entry, jobs, externalValues: [...externalValues] };
 }
 
 export function transitionHistoryEntry(history, id, revision, update) {

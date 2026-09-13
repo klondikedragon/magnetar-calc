@@ -55,13 +55,14 @@ test("never schedules past an earlier computing entry", () => {
   assert.equal(next.entry.id, 1);
 });
 
-test("batches only contiguous History entries whose dependencies are resolved", () => {
+test("batches a contiguous dependency chain for worker-side resolution", () => {
   let history = appendHistoryEntry([], { id: 1, expression: "yellowstone(@n)" });
   history = appendHistoryEntry(history, { id: 2, expression: "yellowstone(@n)" });
   history = appendHistoryEntry(history, { id: 3, expression: "@history(-1) + 1" });
   const batch = nextHistoryBatch(history);
   assert.equal(batch.kind, "ready");
-  assert.deepEqual(batch.jobs.map((job) => job.entry.id), [1, 2]);
+  assert.deepEqual(batch.jobs.map((job) => job.entry.id), [1, 2, 3]);
+  assert.deepEqual(batch.externalValues, []);
 });
 
 test("returns orphaned computing work to the serial queue", () => {
