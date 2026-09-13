@@ -1,10 +1,10 @@
 # Node/Vite dependencies and generated output
-calculation-workbench-prototype/node_modules/
-calculation-workbench-prototype/dist/
-calculation-workbench-prototype/.npm-cache/
-calculation-workbench-prototype/coverage/
-calculation-workbench-prototype/.wrangler/
-calculation-workbench-prototype/.dev.vars*
+node_modules/
+dist/
+.npm-cache/
+coverage/
+.wrangler/
+.dev.vars*
 
 # Local logs and editor/system files
 *.log

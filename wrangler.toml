@@ -1,4 +1,4 @@
-name = "magnetar-calculator"
+name = "magnetar-calc"
 main = "./worker/index.js"
 compatibility_date = "2026-09-12"
 workers_dev = false

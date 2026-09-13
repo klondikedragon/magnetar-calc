@@ -64,7 +64,7 @@ assets it names are activated as one version.
 
 - [x] Add `wrangler.toml` for the client build output and SPA navigation
   fallback. The connected Cloudflare Worker must be named
-  `magnetar-calculator`.
+  `magnetar-calc`.
 - [x] Add static response headers: revalidate HTML, manifest, and service
   worker; cache hashed build assets immutably, and attach security headers from
   the Worker because it handles asset responses.
