@@ -62,3 +62,16 @@ test("flushes the newest snapshot for lifecycle events", () => {
   assert.deepEqual(writes, ["durable"]);
   assert.equal(persistence.flush(), false);
 });
+
+test("reports serialization or storage errors without throwing", () => {
+  const timers = createFakeTimers();
+  const errors = [];
+  const persistence = createCoalescedPersistence({
+    write: () => { throw new Error("storage quota exceeded"); },
+    onError: (error) => errors.push(error.message),
+    timers,
+  });
+  persistence.schedule(() => "workspace");
+  assert.equal(persistence.flush(), false);
+  assert.deepEqual(errors, ["storage quota exceeded"]);
+});

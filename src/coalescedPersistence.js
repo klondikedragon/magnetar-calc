@@ -3,7 +3,7 @@ const defaultMaximumDelayMs = 5_000;
 
 // Keep serialization out of the render path. Callers provide a factory so the
 // latest snapshot is assembled only when this controller actually flushes.
-export function createCoalescedPersistence({ write, delayMs = defaultDelayMs, maximumDelayMs = defaultMaximumDelayMs, timers = globalThis }) {
+export function createCoalescedPersistence({ write, onError = () => {}, delayMs = defaultDelayMs, maximumDelayMs = defaultMaximumDelayMs, timers = globalThis }) {
   let delayedFlush = null;
   let maximumFlush = null;
   let latestSnapshot = null;
@@ -20,8 +20,13 @@ export function createCoalescedPersistence({ write, delayMs = defaultDelayMs, ma
     if (!latestSnapshot) return false;
     const snapshot = latestSnapshot;
     latestSnapshot = null;
-    write(snapshot());
-    return true;
+    try {
+      write(snapshot());
+      return true;
+    } catch (error) {
+      onError(error);
+      return false;
+    }
   }
 
   return {

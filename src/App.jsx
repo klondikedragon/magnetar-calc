@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChartNoAxesCombined, Check, Copy, ExternalLink, FolderOpen, Info, PlaySquare, RotateCcw, Save } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, Check, CircleAlert, Copy, ExternalLink, FolderOpen, Info, PlaySquare, RotateCcw, Save } from "lucide-react";
 import { TableVirtuoso, Virtuoso } from "react-virtuoso";
 import { registerSW } from "virtual:pwa-register";
 import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, exportPrecision, formatAutomatically, formatDigitCountForInspector, formatForHighPrecisionExport, inspectAutomatically, serializeValue } from "./engine";
@@ -104,6 +104,8 @@ export function App() {
   const [toast, setToast] = useState("");
   const [copiedTarget, setCopiedTarget] = useState(null);
   const [expressionError, setExpressionError] = useState("");
+  const [expressionDiagnostic, setExpressionDiagnostic] = useState(null);
+  const [expressionDiagnosticOpen, setExpressionDiagnosticOpen] = useState(false);
   const [exportStatus, setExportStatus] = useState("");
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportAnswers, setExportAnswers] = useState("none");
@@ -169,9 +171,8 @@ export function App() {
   const pwaUpdateActivationRef = useRef(false);
   if (!workspacePersistenceRef.current) {
     workspacePersistenceRef.current = createCoalescedPersistence({
-      write: (snapshot) => {
-        try { window.localStorage.setItem(storageKey, snapshot); } catch { /* Storage is optional; the calculator remains usable without it. */ }
-      },
+      write: (snapshot) => window.localStorage.setItem(storageKey, snapshot),
+      onError: (error) => reportExpressionFailure("Saving this workspace", error),
     });
   }
   const traceHistoryQueue = (event) => {
@@ -181,6 +182,12 @@ export function App() {
     window.__elephantHistoryQueueTrace = trace.snapshot();
   };
   const focusExpression = () => requestAnimationFrame(() => expressionRef.current?.focus());
+  function reportExpressionFailure(context, error) {
+    const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
+    const detail = `${context}\n${error instanceof Error ? `${error.name}: ${message}` : message}${error instanceof Error && error.stack ? `\n\n${error.stack}` : ""}`;
+    setExpressionError(calculationErrorMessage(message));
+    setExpressionDiagnostic({ context, detail });
+  }
   function sizeExpression(input = expressionRef.current) {
     if (!input) return;
     input.style.height = "auto";
@@ -194,6 +201,18 @@ export function App() {
   useEffect(() => { requestAnimationFrame(() => sizeExpression()); }, [expression, expressionLines]);
   useEffect(() => { nextIdRef.current = nextId; }, [nextId]);
   useEffect(() => () => clearTimeout(copyFeedbackTimerRef.current), []);
+  useEffect(() => {
+    const onUnexpectedError = (event) => {
+      if (event.error) reportExpressionFailure("Unexpected application error", event.error);
+    };
+    const onUnhandledRejection = (event) => reportExpressionFailure("Unhandled calculation error", event.reason);
+    window.addEventListener("error", onUnexpectedError);
+    window.addEventListener("unhandledrejection", onUnhandledRejection);
+    return () => {
+      window.removeEventListener("error", onUnexpectedError);
+      window.removeEventListener("unhandledrejection", onUnhandledRejection);
+    };
+  }, []);
   useEffect(() => {
     const strip = document.querySelector(".memory-strip");
     const returnFocus = (event) => { if (!event.target.closest(".memory-chip")) focusExpression(); };
@@ -318,6 +337,8 @@ export function App() {
   function updatePreview(nextExpression) {
     setExpression(nextExpression);
     setExpressionError("");
+    setExpressionDiagnostic(null);
+    setExpressionDiagnosticOpen(false);
   }
 
   useEffect(() => {
@@ -341,18 +362,20 @@ export function App() {
         clearTimeout(deadline);
         if (jobId !== jobCounterRef.current) return;
         workerBusyRef.current = false;
-        if (data.type === "error") { setExpressionError(calculationErrorMessage(data.message)); setCalculation({ status: "failed", startedAt: 0 }); return; }
-        const value = deserializeValue(data.value);
+        if (data.type === "error") { reportExpressionFailure("Preview calculation", new Error(data.message)); setCalculation({ status: "failed", startedAt: 0 }); return; }
+        let value;
+        try { value = deserializeValue(data.value); } catch (error) { reportExpressionFailure("Reading preview result", error); setCalculation({ status: "failed", startedAt: 0 }); return; }
         setPreviewValue(value);
+        setExpressionDiagnostic(null);
         completedExpressionRef.current = source;
         completedReferenceKeyRef.current = previewReferenceSnapshot.key;
         setCalculation({ status: "completed", startedAt: 0 });
       };
-      worker.onerror = () => {
+      worker.onerror = (event) => {
         clearTimeout(deadline);
         if (workerRef.current === worker) workerRef.current = null;
         workerBusyRef.current = false;
-        if (jobId === jobCounterRef.current) { setExpressionError("Check this expression"); setCalculation({ status: "failed", startedAt: 0 }); }
+        if (jobId === jobCounterRef.current) { reportExpressionFailure("Preview calculation worker", event.error ?? new Error(event.message)); setCalculation({ status: "failed", startedAt: 0 }); }
       };
       worker.postMessage({ jobId, expression: source, references: workerReferences, options: { precision } });
     }, 120);
@@ -1240,7 +1263,7 @@ export function App() {
   return <main className="app-shell">
     <section className={`workbench ${expressionLines >= 5 ? "expression-tall" : ""}`}>
       <section className={`calculation-stage ${expressionError ? "expression-invalid" : ""}`} aria-label="Current calculation">
-        <div className="stage-topline"><span>ACTIVE EXPRESSION</span><span className="stage-actions">{hasDynamicHistoryExpression && <button className="run-history-button" onClick={() => setSequenceRunOpen(true)} title="Add this History-aware expression several times">Run ×</button>}<span className={expressionError ? "stage-hint expression-warning" : "stage-hint"}>{expressionError ? `⚠ ${expressionError}` : "Enter to save to History"}</span></span></div>
+        <div className="stage-topline"><span>ACTIVE EXPRESSION</span><span className="stage-actions">{hasDynamicHistoryExpression && <button className="run-history-button" onClick={() => setSequenceRunOpen(true)} title="Add this History-aware expression several times">Run ×</button>}<span className={expressionError ? "stage-hint expression-warning" : "stage-hint"}>{expressionError || "Enter to save to History"}</span>{expressionDiagnostic && <span className="expression-diagnostic"><button className="expression-error-button" aria-label="Show calculation error details" aria-expanded={expressionDiagnosticOpen} title="Show calculation error details" onClick={() => setExpressionDiagnosticOpen((open) => !open)}><CircleAlert /></button>{expressionDiagnosticOpen && <section className="expression-diagnostic-popover" role="status"><strong>{expressionDiagnostic.context}</strong><pre>{expressionDiagnostic.detail}</pre><button onClick={() => copyText(expressionDiagnostic.detail, "Error details", "expression-error")}>Copy technical details<CopyFeedback target="expression-error" /></button></section>}</span>}</span></div>
         <textarea ref={expressionRef} rows="1" aria-label="Expression" spellCheck={false} value={expression} onChange={(event) => updatePreview(event.target.value)} onInput={(event) => sizeExpression(event.currentTarget)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); commit(); } if (event.key === "Escape") { event.preventDefault(); updatePreview(""); } }} />
         <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={previewTooltip} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{showCalculating ? <span className="calculation-status" role="status">◌ Computing preview<button onClick={cancelCalculation}>Cancel</button></span> : calculation.status === "timed-out" ? <span className="toast">Exact calculation reached its time budget</span> : toast && <span className="toast" role="status">{toast}</span>}</div>
         {inspectorOpen && <InspectorSummary data={inspection} subject={{ value: previewValue, data: inspection, digits: digitCount, sourceExpression: expression }} />}
