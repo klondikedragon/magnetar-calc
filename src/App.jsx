@@ -178,7 +178,10 @@ export function App() {
     trace.record({ ...event, queueLength: historyRef.current.filter((item) => item.state !== "completed").length });
     window.__elephantHistoryQueueTrace = trace.snapshot();
   };
-  const focusExpression = () => requestAnimationFrame(() => expressionRef.current?.focus());
+  // Mobile browsers only open the software keyboard when focus happens during
+  // the trusted tap/click itself. Selection restoration may wait for React's
+  // controlled value update, but focus must not.
+  const focusExpression = () => expressionRef.current?.focus({ preventScroll: true });
   function reportExpressionFailure(context, error) {
     const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
     const detail = `${context}\n${error instanceof Error ? `${error.name}: ${message}` : message}${error instanceof Error && error.stack ? `\n\n${error.stack}` : ""}`;
@@ -701,8 +704,9 @@ export function App() {
       const start = expressionRef.current?.selectionStart ?? expression.length;
       const end = expressionRef.current?.selectionEnd ?? start;
       const caret = start !== end ? start : Math.max(0, start - 1);
+      focusExpression();
       updatePreview(start !== end ? `${expression.slice(0, start)}${expression.slice(end)}` : `${expression.slice(0, caret)}${expression.slice(end)}`);
-      requestAnimationFrame(() => { expressionRef.current?.focus(); expressionRef.current?.setSelectionRange(caret, caret); });
+      requestAnimationFrame(() => expressionRef.current?.setSelectionRange(caret, caret));
       return;
     }
     if (key === "Ans") {
@@ -719,15 +723,17 @@ export function App() {
     const selected = expression.slice(start, end);
     const replaceSelection = (insert, caret = insert.length) => {
       const next = `${expression.slice(0, start)}${insert}${expression.slice(end)}`;
+      focusExpression();
       updatePreview(next);
-      requestAnimationFrame(() => { input?.focus(); input?.setSelectionRange(start + caret, start + caret); });
+      requestAnimationFrame(() => input?.setSelectionRange(start + caret, start + caret));
     };
     if (key === "(·)") {
       if (selected) return replaceSelection(`(${selected})`, selected.length + 2);
       const next = expression ? `(${expression})` : "()";
       const caret = expression ? next.length : 1;
+      focusExpression();
       updatePreview(next);
-      requestAnimationFrame(() => { input?.focus(); input?.setSelectionRange(caret, caret); });
+      requestAnimationFrame(() => input?.setSelectionRange(caret, caret));
       return;
     }
     if (key === "(") return replaceSelection(selected ? `(${selected})` : "()", selected ? selected.length + 2 : 1);
@@ -1255,7 +1261,7 @@ export function App() {
     <section className={`workbench ${expressionLines >= 5 ? "expression-tall" : ""}`}>
       <section className={`calculation-stage ${expressionError ? "expression-invalid" : ""}`} aria-label="Current calculation">
         <div className="stage-topline"><span>ACTIVE EXPRESSION</span><span className="stage-actions">{hasDynamicHistoryExpression && <button className="run-history-button" onClick={() => setSequenceRunOpen(true)} title="Add this History-aware expression several times">Run ×</button>}<span className={expressionError ? "stage-hint expression-warning" : "stage-hint"}>{expressionError || "Enter to save to History"}</span>{expressionDiagnostic && <span className="expression-diagnostic"><button className="expression-error-button" aria-label="Show calculation error details" aria-expanded={expressionDiagnosticOpen} title="Show calculation error details" onClick={() => setExpressionDiagnosticOpen((open) => !open)}><CircleAlert /></button>{expressionDiagnosticOpen && <section className="expression-diagnostic-popover" role="status"><strong>{expressionDiagnostic.context}</strong><pre>{expressionDiagnostic.detail}</pre><button onClick={() => copyText(expressionDiagnostic.detail, "Error details", "expression-error")}>Copy technical details<CopyFeedback target="expression-error" /></button></section>}</span>}</span></div>
-        <textarea ref={expressionRef} rows="1" aria-label="Expression" spellCheck={false} value={expression} onChange={(event) => updatePreview(event.target.value)} onInput={(event) => sizeExpression(event.currentTarget)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); commit(); } if (event.key === "Escape") { event.preventDefault(); updatePreview(""); } }} />
+        <textarea ref={expressionRef} rows="1" aria-label="Expression" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" enterKeyHint="done" value={expression} onChange={(event) => updatePreview(event.target.value)} onInput={(event) => sizeExpression(event.currentTarget)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); commit(); } if (event.key === "Escape") { event.preventDefault(); updatePreview(""); } }} />
         <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={previewTooltip} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{showCalculating ? <span className="calculation-status" role="status">◌ Computing preview<button onClick={cancelCalculation}>Cancel</button></span> : calculation.status === "timed-out" ? <span className="toast">Exact calculation reached its time budget</span> : toast && <span className="toast" role="status">{toast}</span>}</div>
         {inspectorOpen && <InspectorSummary data={inspection} subject={{ value: previewValue, data: inspection, digits: digitCount, sourceExpression: expression }} />}
         <div className="result-meta">{preview.steinhaus ? <><span>form <b className="selectable-text">{preview.canonical}</b></span><span>symbolic exact</span><span>{previewValue.engineLabel}</span></> : preview.structuralPower ? <><span>form <b className="selectable-text">{preview.canonical}</b></span><span>symbolic exact</span><span>{inspection.facts?.find((fact) => fact.id === "decimal-digit-order")?.value ? `digit-count order ${inspection.facts.find((fact) => fact.id === "decimal-digit-order").value}` : "exact power structure"}</span></> : <><span>sign <b className="selectable-text">{preview.sign || "+"}</b></span><span>exponent <b className="selectable-text">{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"}</span>{primalityLabel(previewValue) && <span className={`primality-meta ${previewValue.primality.kind}`} title={previewValue.primality.method}>{primalityLabel(previewValue)}</span>}</>}{decimalDigitSummary && <span>{decimalDigitSummary.label} <b className="selectable-text">{decimalDigitSummary.value}</b></span>}<span>click result to inspect</span></div>

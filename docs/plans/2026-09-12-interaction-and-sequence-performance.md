@@ -73,15 +73,15 @@ must be preserved throughout.
 
 ### 4. Make calculator focus mobile-safe
 
-- [ ] Focus the active textarea synchronously inside trusted calculator-button
+- [x] Focus the active textarea synchronously inside trusted calculator-button
   activation; restore its selection after the controlled value update.
-- [ ] Keep modal-opening controls and ordinary navigation controls on their own
+- [x] Keep modal-opening controls and ordinary navigation controls on their own
   appropriate focus targets.
-- [ ] Give the expression editing row a comfortable touch target that invokes
+- [x] Give the expression editing row a comfortable touch target that invokes
   native focus only after the user taps it.
-- [ ] Add `touch-action: manipulation` and explicit prefixed/unprefixed
+- [x] Add `touch-action: manipulation` and explicit prefixed/unprefixed
   non-selection rules to app controls while preserving selectable outputs.
-- [ ] Add appropriate mobile text-entry hints without forcing a numeric-only
+- [x] Add appropriate mobile text-entry hints without forcing a numeric-only
   keyboard or focusing on startup.
 
 ### 5. Consolidate and optimize sequence evaluation
