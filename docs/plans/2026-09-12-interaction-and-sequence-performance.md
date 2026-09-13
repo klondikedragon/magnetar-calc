@@ -2,7 +2,8 @@
 
 ## Status
 
-In progress. This plan removes interaction work that scales with result size,
+Implementation complete; physical iPad verification remains. This plan
+removes interaction work that scales with result size,
 hardens mobile editing, and gives each sequence implementation an explicit
 direct-or-cached performance strategy. Large-number capability and exactness
 must be preserved throughout.
@@ -101,13 +102,35 @@ must be preserved throughout.
 
 ### 6. Integrated verification
 
-- [ ] Run the complete Node 24 test suite, oracle tests, History benchmark,
+- [x] Run the complete Node 24 test suite, oracle tests, History benchmark,
   production build, and Cloudflare/Sites checks.
-- [ ] Verify local button input, caret placement, keyboard navigation, large
+- [x] Verify local button input, caret placement, keyboard navigation, large
   exact display, History queue completion, and PWA update deferral.
-- [ ] Inspect production-browser console output and record any iPad Safari
+- [x] Inspect production-browser console output and record any iPad Safari
   checks that still require a physical-device pass.
-- [ ] Update this plan with measured before/after results and residual risks.
+- [x] Update this plan with measured before/after results and residual risks.
+
+## Verification results
+
+- Node 24.20.0: 187 tests passed, including the SymPy/mpmath oracles and PWA
+  update-state coverage.
+- Digit grouping: 6,002 digits improved from about 170 ms to 0.28 ms;
+  100,000 digits improved from over 30 seconds to about 12.5 ms.
+- Repeating one unchanged 6,002-digit presentation 100 times improved from
+  about 23.7 ms to 0.22 ms through value-identity caching.
+- Non-UX History scheduling resolved 1,000 Yellowstone entries in about
+  101 ms. The sequence library generated the first 1,000 Yellowstone terms
+  cold in about 17 ms and served 1,000 rounds of cached endpoints in 0.68 ms.
+- The production PWA and Sites bundle built successfully; all four SPA/static
+  route tests passed. The large chunk warning and Workbox's upstream
+  `inlineDynamicImports` deprecation warning remain non-failing build notes.
+- Browser verification placed a keypad digit at an interior caret, produced
+  the expected expression, and left the textarea focused. A 6,002-digit exact
+  Mersenne result rendered with its exact digit count. Local and deployed
+  browser consoles contained no warnings or errors.
+- A physical iPad pass is still required to confirm that WebKit opens the
+  software keyboard after a calculator-button focus transfer; desktop browser
+  automation cannot reproduce the operating system keyboard itself.
 
 ## Commit checkpoints
 
