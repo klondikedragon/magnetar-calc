@@ -12,6 +12,6 @@ test("builds a grammar-validated Mersenne default and ten Fibonacci seed entries
   assert.equal(workspace.expression, defaultExpression);
   assert.equal(workspace.nextId, 11);
   assert.deepEqual(workspace.history.map((item) => item.id), [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
-  assert.deepEqual(workspace.history.map((item) => item.value.exactInteger), ["34", "21", "13", "8", "5", "3", "2", "1", "1", "0"]);
-  assert.equal(workspace.previewValue.exactInteger.length, 6002);
+  assert.ok(workspace.history.every((item) => !("value" in item)));
+  assert.equal("previewValue" in workspace, false);
 });

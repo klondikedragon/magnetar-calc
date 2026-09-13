@@ -16,6 +16,7 @@ import { createValuePresentationCache } from "./presentationCache";
 import { createDefaultWorkspace } from "./seedWorkspace";
 import { useDismissiblePopover } from "./useDismissiblePopover";
 import { shouldRestoreEditorFocus } from "./interactionModality";
+import { prepareWorkspaceHydration } from "./workspaceHydration";
 
 const HistoryChartDialog = lazy(() => import("./HistoryChartDialog"));
 
@@ -90,17 +91,17 @@ function historyReferences(items, options) {
 }
 
 export function App() {
-  const [storedWorkspace] = useState(readStoredWorkspace);
-  const [expression, setExpression] = useState(() => storedWorkspace?.expression ?? initialWorkspace.expression);
-  const [base, setBase] = useState(() => storedWorkspace?.view?.base ?? storedWorkspace?.base ?? 10);
-  const [precision, setPrecision] = useState(() => storedWorkspace?.view?.precision ?? storedWorkspace?.precision ?? 48);
-  const [notation, setNotation] = useState(() => storedWorkspace?.view?.notation ?? storedWorkspace?.notation ?? "auto");
-  const [groupDigits, setGroupDigits] = useState(() => storedWorkspace?.view?.groupDigits ?? true);
-  const [activeMode, setActiveMode] = useState(() => storedWorkspace?.view?.activeMode ?? storedWorkspace?.activeMode ?? "Calculator");
-  const [history, setHistory] = useState(() => rebuildHistoryLedger(storedWorkspace?.history?.map((item) => ({ ...item, value: deserializeValue(item.value), state: "completed" })) ?? initialWorkspace.history.map((item) => ({ ...item, state: "completed" }))));
-  const [nextId, setNextId] = useState(() => storedWorkspace?.nextId ?? initialWorkspace.nextId);
-  const [memory, setMemory] = useState(() => storedWorkspace?.memory ? { ...storedWorkspace.memory, value: deserializeValue(storedWorkspace.memory.value) } : null);
-  const [previewValue, setPreviewValue] = useState(() => deserializeValue(storedWorkspace?.previewValue) ?? initialWorkspace.previewValue);
+  const [workspaceHydrated, setWorkspaceHydrated] = useState(false);
+  const [expression, setExpression] = useState("");
+  const [base, setBase] = useState(10);
+  const [precision, setPrecision] = useState(48);
+  const [notation, setNotation] = useState("auto");
+  const [groupDigits, setGroupDigits] = useState(true);
+  const [activeMode, setActiveMode] = useState("Calculator");
+  const [history, setHistory] = useState([]);
+  const [nextId, setNextId] = useState(1);
+  const [memory, setMemory] = useState(null);
+  const [previewValue, setPreviewValue] = useState(null);
   const [calculation, setCalculation] = useState({ status: "idle", startedAt: 0 });
   const [showCalculating, setShowCalculating] = useState(false);
   const [toast, setToast] = useState("");
@@ -116,14 +117,14 @@ export function App() {
   const [historyChartOpen, setHistoryChartOpen] = useState(false);
   const [exampleQuery, setExampleQuery] = useState("");
   const [exampleCategory, setExampleCategory] = useState("All");
-  const [exampleView, setExampleView] = useState(() => storedWorkspace?.view?.exampleView ?? "grid");
-  const [exampleSort, setExampleSort] = useState(() => storedWorkspace?.view?.exampleSort ?? "category");
-  const [exampleSortDirection, setExampleSortDirection] = useState(() => storedWorkspace?.view?.exampleSortDirection ?? "asc");
+  const [exampleView, setExampleView] = useState("grid");
+  const [exampleSort, setExampleSort] = useState("category");
+  const [exampleSortDirection, setExampleSortDirection] = useState("asc");
   const [exampleDetails, setExampleDetails] = useState(null);
   const [functionBrowserOpen, setFunctionBrowserOpen] = useState(false);
   const [functionQuery, setFunctionQuery] = useState("");
   const [functionCategory, setFunctionCategory] = useState("All");
-  const [functionView, setFunctionView] = useState(() => storedWorkspace?.view?.functionView ?? "grid");
+  const [functionView, setFunctionView] = useState("grid");
   const [pendingImport, setPendingImport] = useState(null);
   const [transferStatus, setTransferStatus] = useState("");
   const [memoryOpen, setMemoryOpen] = useState(false);
@@ -135,7 +136,7 @@ export function App() {
   const [sequenceRunCount, setSequenceRunCount] = useState("50");
   const [brandInfoOpen, setBrandInfoOpen] = useState(false);
   const [brandInfoHovered, setBrandInfoHovered] = useState(false);
-  const [historyDockOpen, setHistoryDockOpen] = useState(() => storedWorkspace?.view?.historyDockOpen ?? true);
+  const [historyDockOpen, setHistoryDockOpen] = useState(true);
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
   const [narrowWorkbench, setNarrowWorkbench] = useState(() => window.matchMedia("(max-width: 700px)").matches);
   const [expressionLines, setExpressionLines] = useState(1);
@@ -190,6 +191,36 @@ export function App() {
       onError: (error) => reportExpressionFailure("Saving this workspace", error),
     });
   }
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const stored = readStoredWorkspace();
+      const prepared = prepareWorkspaceHydration(stored, initialWorkspace, deserializeValue);
+      const { workspace, history: restoredHistory, memory: restoredMemory } = prepared;
+      const view = workspace.view ?? workspace;
+      historyRef.current = restoredHistory;
+      nextIdRef.current = workspace.nextId ?? initialWorkspace.nextId;
+      setHistory(restoredHistory);
+      setNextId(nextIdRef.current);
+      setMemory(restoredMemory);
+      if ([2, 10, 16].includes(view.base)) setBase(view.base);
+      if (Number.isInteger(view.precision) && view.precision >= 0 && view.precision <= maximumDisplayPrecision) setPrecision(view.precision);
+      if (["auto", "decimal", "scientific", "engineering", "expanded"].includes(view.notation)) setNotation(view.notation);
+      if (typeof view.groupDigits === "boolean") setGroupDigits(view.groupDigits);
+      if (modes.includes(view.activeMode)) setActiveMode(view.activeMode);
+      if (["compact", "detailed", "grid"].includes(view.functionView)) setFunctionView(view.functionView);
+      if (["compact", "detailed", "grid"].includes(view.exampleView)) setExampleView(view.exampleView);
+      if (["category", "name", "description"].includes(view.exampleSort)) setExampleSort(view.exampleSort);
+      if (["asc", "desc"].includes(view.exampleSortDirection)) setExampleSortDirection(view.exampleSortDirection);
+      if (typeof view.historyDockOpen === "boolean") setHistoryDockOpen(view.historyDockOpen);
+      setExpression(workspace.expression ?? initialWorkspace.expression);
+      setWorkspaceHydrated(true);
+      if (prepared.recovered) {
+        setToast("Saved workspace was damaged; loaded the starter workspace instead");
+        setTimeout(() => setToast(""), 3500);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
   const traceHistoryQueue = (event) => {
     if (!import.meta.env.DEV) return;
     const trace = historyQueueDiagnosticsRef.current;
@@ -300,6 +331,7 @@ export function App() {
     };
   }, []);
   useEffect(() => {
+    if (!workspaceHydrated) return;
     workspacePersistenceRef.current.schedule(() => JSON.stringify({
         expression, nextId,
         view: { base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection, historyDockOpen },
@@ -307,7 +339,7 @@ export function App() {
         history: history.filter((item) => item.state === "completed").map((item) => ({ id: item.id, expression: item.expression, value: serializeValue(item.value) })),
         memory: memory ? { ...memory, value: serializeValue(memory.value) } : null,
       }));
-  }, [expression, base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection, historyDockOpen, nextId, previewValue, history, memory]);
+  }, [workspaceHydrated, expression, base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection, historyDockOpen, nextId, previewValue, history, memory]);
   useEffect(() => {
     const flushWorkspace = () => workspacePersistenceRef.current?.flush();
     const flushWhenHidden = () => { if (document.visibilityState === "hidden") flushWorkspace(); };
@@ -323,14 +355,16 @@ export function App() {
   const paletteKeys = activeMode === "Number theory" ? numberTheoryKeys : activeMode === "Sequences" ? sequenceKeys : activeMode === "Programmer" ? keys : activeMode === "Trigonometry" ? keys : activeMode === "Scientific" ? keys : activeMode === "Ordinal / hierarchy" ? ordinalKeys : keys;
   const paletteHelp = activeMode === "Sequences" ? sequenceHelp : activeMode === "Ordinal / hierarchy" ? ordinalHelp : {};
   const renderResult = useMemo(() => createValuePresentationCache((value) => formatAutomatically(value, { base, precision, notation, groupDigits })), [base, precision, notation, groupDigits]);
-  const preview = useMemo(() => formatAutomatically(previewValue, { base, precision, notation, groupDigits, showSteinhausShape: true }), [previewValue, base, precision, notation, groupDigits]);
-  const inspection = useMemo(() => inspectAutomatically(previewValue, { base, precision, notation }), [previewValue, base, precision, notation]);
-  const digitCount = useMemo(() => digitCountAutomatically(previewValue, base), [previewValue, base]);
+  const preview = useMemo(() => previewValue
+    ? formatAutomatically(previewValue, { base, precision, notation, groupDigits, showSteinhausShape: true })
+    : { sign: "", significand: workspaceHydrated ? "Preparing calculation…" : "Loading workspace…", exponent: "", text: workspaceHydrated ? "Preparing calculation" : "Loading workspace" }, [previewValue, workspaceHydrated, base, precision, notation, groupDigits]);
+  const inspection = useMemo(() => previewValue ? inspectAutomatically(previewValue, { base, precision, notation }) : { facts: [] }, [previewValue, base, precision, notation]);
+  const digitCount = useMemo(() => previewValue ? digitCountAutomatically(previewValue, base) : null, [previewValue, base]);
   // The compact line may state an exact count only for an exact integer.
   // Structural and rounded values instead retain their qualified estimate.
-  const decimalDigitCount = useMemo(() => digitCountAutomatically(previewValue, 10), [previewValue]);
+  const decimalDigitCount = useMemo(() => previewValue ? digitCountAutomatically(previewValue, 10) : null, [previewValue]);
   const decimalDigitEstimate = inspection.facts?.find((fact) => fact.id === "decimal-digit-estimate");
-  const decimalDigitSummary = previewValue.exactInteger && decimalDigitCount?.certainty === "exact"
+  const decimalDigitSummary = previewValue?.exactInteger && decimalDigitCount?.certainty === "exact"
     ? { label: "base-10 digits", value: formatDigitCountForInspector(decimalDigitCount, { groupDigits }) }
     : decimalDigitEstimate ? { label: "base-10 digit estimate", value: decimalDigitEstimate.value } : null;
   const filteredFunctions = useMemo(() => filterFunctionCatalog(functionQuery, functionCategory), [functionQuery, functionCategory]);
@@ -382,6 +416,7 @@ export function App() {
   }
 
   useEffect(() => {
+    if (!workspaceHydrated) return undefined;
     const source = expression.trim();
     if (!source) { setCalculation({ status: "idle", startedAt: 0 }); return undefined; }
     const jobId = ++jobCounterRef.current;
@@ -425,7 +460,11 @@ export function App() {
       // cache such as Yellowstone can be reused on the next calculation.
       if (workerBusyRef.current) { workerRef.current?.terminate(); workerRef.current = null; workerBusyRef.current = false; }
     };
-  }, [expression, precision, workerReferences]);
+  }, [workspaceHydrated, expression, precision, workerReferences]);
+  useEffect(() => {
+    if (!workspaceHydrated) return;
+    queueMicrotask(processHistoryQueue);
+  }, [workspaceHydrated]);
   useEffect(() => {
     const recovered = recoverOrphanedHistoryWork(historyRef.current);
     if (recovered.some((entry, index) => entry !== historyRef.current[index])) {
@@ -1061,7 +1100,7 @@ export function App() {
     return recomputed;
   }
 
-  function currentViewSettings() { return { base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection }; }
+  function currentViewSettings() { return { base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection, historyDockOpen }; }
 
   function openExportDialog() {
     setExportAnswers("none");
@@ -1113,6 +1152,7 @@ export function App() {
     if (["compact", "detailed", "grid"].includes(view.exampleView)) setExampleView(view.exampleView);
     if (["category", "name", "description"].includes(view.exampleSort)) setExampleSort(view.exampleSort);
     if (["asc", "desc"].includes(view.exampleSortDirection)) setExampleSortDirection(view.exampleSortDirection);
+    if (typeof view.historyDockOpen === "boolean") setHistoryDockOpen(view.historyDockOpen);
   }
 
   function queueNotebookImport(candidate, label) {
@@ -1324,9 +1364,9 @@ export function App() {
       <section className={`calculation-stage ${expressionError ? "expression-invalid" : ""}`} aria-label="Current calculation">
         <div className="stage-topline"><span>ACTIVE EXPRESSION</span><span className="stage-actions">{hasDynamicHistoryExpression && <button className="run-history-button" onClick={() => setSequenceRunOpen(true)} title="Add this History-aware expression several times">Run ×</button>}<span className={expressionError ? "stage-hint expression-warning" : "stage-hint"}>{expressionError || "Enter to save to History"}</span>{expressionDiagnostic && <span className="expression-diagnostic"><button className="expression-error-button" aria-label="Show calculation error details" aria-expanded={expressionDiagnosticOpen} title="Show calculation error details" onClick={() => setExpressionDiagnosticOpen((open) => !open)}><CircleAlert /></button>{expressionDiagnosticOpen && <section className="expression-diagnostic-popover" role="status"><strong>{expressionDiagnostic.context}</strong><pre>{expressionDiagnostic.detail}</pre><button onClick={() => copyText(expressionDiagnostic.detail, "Error details", "expression-error")}>Copy technical details<CopyFeedback target="expression-error" /></button></section>}</span>}</span></div>
         <textarea ref={expressionRef} rows="1" aria-label="Expression" spellCheck={false} autoCapitalize="off" autoCorrect="off" autoComplete="off" enterKeyHint="done" value={expression} onChange={(event) => updatePreview(event.target.value)} onInput={(event) => sizeExpression(event.currentTarget)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); commit(); } if (event.key === "Escape") { event.preventDefault(); updatePreview(""); } }} />
-        <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={resultLabel(preview, "Inspect result")} title={previewTooltip} onClick={toggleInspector}>{renderResultContent(preview)}</button></div>{showCalculating ? <span className="calculation-status" role="status">◌ Computing preview<button onClick={cancelCalculation}>Cancel</button></span> : calculation.status === "timed-out" ? <span className="toast">Exact calculation reached its time budget</span> : toast && <span className="toast" role="status">{toast}</span>}</div>
-        {inspectorOpen && <InspectorSummary data={inspection} subject={{ value: previewValue, data: inspection, digits: digitCount, sourceExpression: expression }} />}
-        <div className="result-meta">{preview.steinhaus ? <><span>form <b className="selectable-text">{preview.canonical}</b></span><span>symbolic exact</span><span>{previewValue.engineLabel}</span></> : preview.structuralPower ? <><span>form <b className="selectable-text">{preview.canonical}</b></span><span>symbolic exact</span><span>{inspection.facts?.find((fact) => fact.id === "decimal-digit-order")?.value ? `digit-count order ${inspection.facts.find((fact) => fact.id === "decimal-digit-order").value}` : "exact power structure"}</span></> : <><span>sign <b className="selectable-text">{preview.sign || "+"}</b></span><span>exponent <b className="selectable-text">{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"}</span>{primalityLabel(previewValue) && <span className={`primality-meta ${previewValue.primality.kind}`} title={previewValue.primality.method}>{primalityLabel(previewValue)}</span>}</>}{decimalDigitSummary && <span>{decimalDigitSummary.label} <b className="selectable-text">{decimalDigitSummary.value}</b></span>}<span>click result to inspect</span></div>
+        <div className="result-line"><div className="result-wrap"><button className="equals-button" aria-label="Calculate expression" title="Calculate and save to History" onClick={commit}>=</button><button className="number-result selectable-output" aria-label={previewValue ? resultLabel(preview, "Inspect result") : preview.text} title={previewTooltip} onClick={previewValue ? toggleInspector : undefined} disabled={!previewValue}>{renderResultContent(preview)}</button></div>{showCalculating ? <span className="calculation-status" role="status">◌ Computing preview<button onClick={cancelCalculation}>Cancel</button></span> : calculation.status === "timed-out" ? <span className="toast">Exact calculation reached its time budget</span> : toast && <span className="toast" role="status">{toast}</span>}</div>
+        {inspectorOpen && previewValue && <InspectorSummary data={inspection} subject={{ value: previewValue, data: inspection, digits: digitCount, sourceExpression: expression }} />}
+        <div className="result-meta">{!previewValue ? <span>{workspaceHydrated ? "calculation queued" : "restoring saved workspace"}</span> : preview.steinhaus ? <><span>form <b className="selectable-text">{preview.canonical}</b></span><span>symbolic exact</span><span>{previewValue.engineLabel}</span></> : preview.structuralPower ? <><span>form <b className="selectable-text">{preview.canonical}</b></span><span>symbolic exact</span><span>{inspection.facts?.find((fact) => fact.id === "decimal-digit-order")?.value ? `digit-count order ${inspection.facts.find((fact) => fact.id === "decimal-digit-order").value}` : "exact power structure"}</span></> : <><span>sign <b className="selectable-text">{preview.sign || "+"}</b></span><span>exponent <b className="selectable-text">{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"}</span>{primalityLabel(previewValue) && <span className={`primality-meta ${previewValue.primality.kind}`} title={previewValue.primality.method}>{primalityLabel(previewValue)}</span>}</>}{decimalDigitSummary && <span>{decimalDigitSummary.label} <b className="selectable-text">{decimalDigitSummary.value}</b></span>}{previewValue && <span>click result to inspect</span>}</div>
         {exportStatus && <span className="export-status" role="status">{exportStatus}{exportWorkerRef.current && <button onClick={cancelHighPrecisionExport}>Cancel</button>}</span>}
         <span className="sr-only" role="status" aria-live="polite">{expressionError || toast || exportStatus}</span>
       </section>

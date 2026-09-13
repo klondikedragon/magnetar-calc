@@ -1,4 +1,3 @@
-import { evaluateWithAnalysis } from "./engine.js";
 import { astToExpression, parseExpression } from "./expressionLanguage.js";
 
 const number = (raw) => ({ type: "number", raw: String(raw) });
@@ -26,23 +25,19 @@ function createSeedHistory() {
     return {
       id: position,
       expression: defaultHistoryExpression,
-      value: evaluateWithAnalysis(defaultHistoryExpression, new Map([["@n", String(position)]])),
     };
   }).reverse();
 }
 
-// Fresh workspaces are derived from expressions through the same evaluator the
-// app uses, rather than carrying hand-written display values. The Mersenne
-// prime is deliberate: its 6,002 digits make the default view a compact
-// demonstration of the exact-integer and magnitude inspector paths.
+// Seeds are deliberately declarative. Importing this module must never run the
+// calculator engine: the app paints first, then sends these expressions through
+// the same preview and History worker paths used for every other calculation.
 const defaultHistory = createSeedHistory();
-const defaultPreviewValue = evaluateWithAnalysis(defaultExpression);
 
 export function createDefaultWorkspace() {
   return {
     expression: defaultExpression,
     history: defaultHistory.map((item) => ({ ...item })),
     nextId: defaultHistory.length + 1,
-    previewValue: defaultPreviewValue,
   };
 }
