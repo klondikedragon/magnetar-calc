@@ -11,6 +11,7 @@ import { historyReferenceEntries } from "./historyReferences";
 import { createHistoryQueueDiagnostics } from "./historyQueueDiagnostics";
 import { createCoalescedPersistence } from "./coalescedPersistence";
 import { canActivatePwaUpdate, createPwaUpdateCoordinator, pwaUpdateCheckIntervalMs } from "./pwaUpdatePolicy";
+import { createValuePresentationCache } from "./presentationCache";
 import { createDefaultWorkspace } from "./seedWorkspace";
 
 const HistoryChartDialog = lazy(() => import("./HistoryChartDialog"));
@@ -275,9 +276,10 @@ export function App() {
   const precisionLabel = useMemo(() => precision.toLocaleString(), [precision]);
   const paletteKeys = activeMode === "Number theory" ? numberTheoryKeys : activeMode === "Sequences" ? sequenceKeys : activeMode === "Programmer" ? keys : activeMode === "Trigonometry" ? keys : activeMode === "Scientific" ? keys : activeMode === "Ordinal / hierarchy" ? ordinalKeys : keys;
   const paletteHelp = activeMode === "Sequences" ? sequenceHelp : activeMode === "Ordinal / hierarchy" ? ordinalHelp : {};
-  const preview = formatAutomatically(previewValue, { base, precision, notation, groupDigits, showSteinhausShape: true });
-  const inspection = inspectAutomatically(previewValue, { base, precision, notation });
-  const digitCount = digitCountAutomatically(previewValue, base);
+  const renderResult = useMemo(() => createValuePresentationCache((value) => formatAutomatically(value, { base, precision, notation, groupDigits })), [base, precision, notation, groupDigits]);
+  const preview = useMemo(() => formatAutomatically(previewValue, { base, precision, notation, groupDigits, showSteinhausShape: true }), [previewValue, base, precision, notation, groupDigits]);
+  const inspection = useMemo(() => inspectAutomatically(previewValue, { base, precision, notation }), [previewValue, base, precision, notation]);
+  const digitCount = useMemo(() => digitCountAutomatically(previewValue, base), [previewValue, base]);
   // The compact line may state an exact count only for an exact integer.
   // Structural and rounded values instead retain their qualified estimate.
   const decimalDigitCount = useMemo(() => digitCountAutomatically(previewValue, 10), [previewValue]);
@@ -1191,14 +1193,11 @@ export function App() {
     return primality.kind === "composite" ? "composite" : "not prime";
   }
 
-  function renderResult(value) { return formatAutomatically(value, { base, precision, notation, groupDigits }); }
-
-  const memoryDisplay = memory ? renderResult(memory.value) : null;
-  const memoryInspection = memory ? inspectAutomatically(memory.value, { base, precision, notation }) : null;
-  const memoryDigitCount = memory ? digitCountAutomatically(memory.value, base) : null;
-  const formatOptions = { base, notation, groupDigits };
-  const previewTooltip = formatAutomatically(previewValue, { base, precision, notation, groupDigits }).text;
-  const memoryTooltip = memory ? formatAutomatically(memory.value, { base, precision, notation, groupDigits }).text : "";
+  const memoryDisplay = useMemo(() => memory ? renderResult(memory.value) : null, [memory, renderResult]);
+  const memoryInspection = useMemo(() => memory ? inspectAutomatically(memory.value, { base, precision, notation }) : null, [memory, base, precision, notation]);
+  const memoryDigitCount = useMemo(() => memory ? digitCountAutomatically(memory.value, base) : null, [memory, base]);
+  const previewTooltip = preview.text;
+  const memoryTooltip = memoryDisplay?.text ?? "";
   const renderResultContent = (formatted, compact = false) => {
     if (formatted.steinhaus) return <><span className="sign">{formatted.sign}</span><SteinhausOutput formatted={formatted} compact={compact || !formatted.showSteinhausShape} /></>;
     if (formatted.knuth) return <><span className="sign">{formatted.sign}</span><span className="knuth-output">{formatted.knuthBase} {formatted.knuthArrows} {formatted.knuthHeight}</span></>;
@@ -1237,7 +1236,7 @@ export function App() {
     const item = row.item;
     const itemResult = renderResult(item.value);
     const itemPrimality = primalityLabel(item.value);
-    const itemTooltip = formatAutomatically(item.value, { base, precision, notation, groupDigits }).text;
+    const itemTooltip = itemResult.text;
     return <article className="history-item">
       <div className="history-top">
         <span className="history-id selectable-text" aria-label={`History item ${item.id}`}>@history({item.id})</span>

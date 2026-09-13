@@ -62,13 +62,13 @@ must be preserved throughout.
 
 ### 3. Avoid repeated presentation work
 
-- [ ] Memoize active result formatting, inspection, digit counts, and tooltip
+- [x] Memoize active result formatting, inspection, digit counts, and tooltip
   derivation by value and view settings.
-- [ ] Reuse already-derived representations rather than calling the formatter
+- [x] Reuse already-derived representations rather than calling the formatter
   twice in one render.
-- [ ] Audit memory and visible History rows for equivalent duplication without
+- [x] Audit memory and visible History rows for equivalent duplication without
   introducing stale display state.
-- [ ] Add a render-cost or pure-presentation benchmark that demonstrates that
+- [x] Add a render-cost or pure-presentation benchmark that demonstrates that
   unrelated interaction state does not reformat a large unchanged value.
 
 ### 4. Make calculator focus mobile-safe

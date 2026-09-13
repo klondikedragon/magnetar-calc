@@ -17,7 +17,8 @@
     "test:oracle": "node --test tests/oracle.test.mjs",
     "test:sites": "node --test tests/sites-worker.test.mjs",
     "benchmark:history": "node benchmarks/history-queue.bench.mjs",
-    "benchmark:formatting": "node benchmarks/formatting.bench.mjs"
+    "benchmark:formatting": "node benchmarks/formatting.bench.mjs",
+    "benchmark:presentation": "node benchmarks/presentation.bench.mjs"
   },
   "dependencies": {
     "break_eternity.js": "^2.1.3",
