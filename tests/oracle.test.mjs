@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import Decimal from "decimal.js";
 import { evaluateAutomatically } from "../src/engine.js";
+import { exampleCatalog } from "../src/exampleCatalog.js";
+import { validateNotebook } from "../src/notebook.js";
 
 const oraclePath = fileURLToPath(new URL("./oracles/math_oracle.py", import.meta.url));
 const oracleCases = [
@@ -27,6 +29,22 @@ const oracleCases = [
   { id: "atan-1", expression: "atan(1)", kind: "transcendental", operation: "atan", arguments: ["1"], digits: 90 },
   { id: "exp-1", expression: "exp(1)", kind: "transcendental", operation: "exp", arguments: ["1"], digits: 90 },
 ];
+
+const exampleSequenceCases = [
+  ["fibonacci", "fibonacci"],
+  ["lucas", "lucas"],
+  ["pell", "pell"],
+  ["tribonacci", "tribonacci"],
+  ["padovan", "padovan"],
+  ["recaman", "recaman"],
+  ["stern", "stern"],
+  ["yellowstone", "yellowstone"],
+].flatMap(([id, operation]) => Array.from({ length: 100 }, (_, index) => ({
+  id: `${id}-${index}`,
+  kind: "exact",
+  operation,
+  arguments: [String(id === "fibonacci" ? index + 1 : index)],
+})));
 
 function runOracle(cases) {
   try {
@@ -54,6 +72,33 @@ test("matches SymPy exact integer and sequence results", () => {
     const value = evaluateAutomatically(item.expression, new Map(), { calculationPrecision: 200 });
     assert.equal(value.kind, "exact-integer", `${item.expression} should remain exact`);
     assert.equal(value.exactInteger, oracle[item.id], item.expression);
+  }
+});
+
+test("matches independent 100-term example sequence generators", () => {
+  const oracle = runOracle(exampleSequenceCases);
+  const exampleIds = {
+    fibonacci: "history.fibonacci-continuation",
+    lucas: "sequences.lucas-companion",
+    pell: "sequences.pell-silver-ratio",
+    tribonacci: "sequences.tribonacci",
+    padovan: "sequences.padovan-plastic",
+  };
+  for (const [name, exampleId] of Object.entries(exampleIds)) {
+    const notebook = validateNotebook(exampleCatalog.find((entry) => entry.id === exampleId).notebook);
+    const values = [];
+    for (const entry of [...notebook.history].reverse()) {
+      const references = new Map(values.map((value, index) => [`@history(-${values.length - index})`, value]));
+      values.push(evaluateAutomatically(entry.expression, references));
+    }
+    values.forEach((value, index) => assert.equal(value.exactInteger, oracle[`${name}-${index}`], `${name}-${index}`));
+  }
+  for (let index = 0; index < 100; index += 1) {
+    for (const name of ["recaman", "stern", "yellowstone"]) {
+      const argument = name === "yellowstone" ? index + 1 : index;
+      const value = evaluateAutomatically(`${name}(${argument})`);
+      assert.equal(value.exactInteger, oracle[`${name}-${index}`], `${name}-${index}`);
+    }
   }
 });
 

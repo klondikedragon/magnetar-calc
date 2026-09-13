@@ -7,6 +7,7 @@ separate SymPy or mpmath calculation.
 
 import json
 import sys
+from math import gcd
 
 import mpmath as mp
 from sympy import bell, binomial, catalan, factorial, fibonacci, lucas
@@ -15,6 +16,29 @@ from sympy.functions.combinatorial.numbers import stirling
 
 def exact(operation, arguments):
     values = [int(argument) for argument in arguments]
+    if operation in {"pell", "tribonacci", "padovan"}:
+        index = values[0]
+        seeds, terms = {
+            "pell": ([0, 1], lambda sequence: 2 * sequence[-1] + sequence[-2]),
+            "tribonacci": ([0, 0, 1], lambda sequence: sum(sequence[-3:])),
+            "padovan": ([1, 1, 1], lambda sequence: sequence[-2] + sequence[-3]),
+        }[operation]
+        sequence = list(seeds)
+        while len(sequence) <= index:
+            sequence.append(terms(sequence))
+        return sequence[index]
+    if operation == "yellowstone":
+        index = values[0]
+        sequence = [1, 2, 3]
+        used = set(sequence)
+        candidate = 1
+        while len(sequence) <= index:
+            while candidate in used or gcd(candidate, sequence[-2]) == 1 or gcd(candidate, sequence[-1]) != 1:
+                candidate += 1
+            sequence.append(candidate)
+            used.add(candidate)
+            candidate = 1
+        return sequence[index]
     if operation == "recaman":
         values_seen = {0}
         value = 0

@@ -64,8 +64,8 @@ export const exampleCatalog = [
     verification: { fixture: "examples.fibonacci-continuation", status: "verified" },
     details: {
       overview: [
-        "Beginning 1, 1, each term is the sum of its two predecessors. Its growth is governed by the golden ratio, φ = (1 + √5) / 2.",
-        "Fibonacci numbers occur throughout combinatorics, including counts of binary strings with no adjacent ones and tilings by squares and dominoes.",
+        "This notebook begins with F₁ = F₂ = 1; each later term is the sum of its two predecessors. (The OEIS indexing also includes F₀ = 0.) Its growth is governed by the golden ratio, φ = (1 + √5) / 2.",
+        "Fibonacci numbers occur throughout combinatorics, including appropriately indexed counts of binary strings with no adjacent ones and tilings of a 1 × n board by unit squares and dominoes.",
       ],
       steps: ["Observe the initial terms.", "Extend the recurrence.", "Compare successive-term ratios with φ."],
     },
@@ -129,7 +129,7 @@ export const exampleCatalog = [
     verification: { fixture: "examples.recaman-walk", status: "verified" },
     details: {
       overview: [
-        "Beginning at 0, step n attempts to subtract n. If that would be nonpositive or revisit a previous value, the sequence adds n instead.",
+        "Beginning at 0, step n attempts to subtract n. If that would be negative or revisit a previous value, the sequence adds n instead.",
         "The resulting path combines a rigid step-size rule with unexpectedly intricate long-range behavior. It is not a permutation: repeated values eventually occur.",
       ],
       steps: ["Examine the alternating upward and downward moves.", "Locate the first repeated values.", "Plot the first hundred terms to see the walk's irregular geometry."],
@@ -173,8 +173,8 @@ export const exampleCatalog = [
     verification: { fixture: "examples.lucas-companion", status: "verified" },
     details: {
       overview: [
-        "Lucas numbers begin 2, 1 and obey the Fibonacci recurrence. Changing only the initial values produces 2, 1, 3, 4, 7, 11, ….",
-        "They are tightly linked to Fibonacci numbers—Lₙ = Fₙ₋₁ + Fₙ₊₁—and their ratios approach the same golden ratio.",
+        "Lucas numbers begin L₀ = 2, L₁ = 1 and obey the Fibonacci recurrence. Changing only the initial values produces 2, 1, 3, 4, 7, 11, ….",
+        "They are tightly linked to Fibonacci numbers—for n ≥ 1, Lₙ = Fₙ₋₁ + Fₙ₊₁—and their successive-term ratios approach the same golden ratio.",
       ],
       steps: ["Compare the seeds with Fibonacci.", "Extend the recurrence.", "Verify the shared long-run growth rate."],
     },
@@ -221,14 +221,14 @@ export const exampleCatalog = [
     published: true,
     category: "Sequences",
     name: "Padovan numbers and the plastic constant",
-    description: "A delayed recurrence whose growth is controlled by the plastic constant.",
+    description: "A recurrence that skips the immediately preceding term and grows at the plastic-constant rate.",
     keywords: ["padovan", "plastic constant", "recurrence", "a000931"],
     notebook: padovanNotebook,
     verification: { fixture: "examples.padovan-plastic", status: "verified" },
     details: {
       overview: [
-        "With seeds 1, 1, 1, this Padovan variant obeys Pₙ = Pₙ₋₂ + Pₙ₋₃, producing 1, 1, 1, 2, 2, 3, 4, 5, ….",
-        "The recurrence skips its immediate predecessor. Its long-run ratio is governed by the plastic constant, the real solution of x³ = x + 1.",
+        "Using the common shifted presentation with seeds 1, 1, 1, the Padovan recurrence Pₙ = Pₙ₋₂ + Pₙ₋₃ produces 1, 1, 1, 2, 2, 3, 4, 5, 7, 9, …. This is the tail of OEIS A000931 beginning at a(5).",
+        "Its first few values overlap familiar small Fibonacci values, but the rule skips the immediate predecessor and grows more slowly. Successive-term ratios approach the plastic constant (about 1.3247), the real solution of x³ = x + 1, rather than the golden ratio (about 1.6180).",
       ],
       steps: ["Compare the delayed dependency with Tribonacci.", "Extend the recurrence.", "Relate the observed growth to x³ = x + 1."],
     },
