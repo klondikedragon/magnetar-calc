@@ -11,14 +11,11 @@ import { historyReferenceEntries } from "./historyReferences";
 import { createHistoryQueueDiagnostics } from "./historyQueueDiagnostics";
 import { createCoalescedPersistence } from "./coalescedPersistence";
 import { canActivatePwaUpdate, pwaUpdateCheckIntervalMs, pwaUpdateIdleDelay } from "./pwaUpdatePolicy";
+import { createDefaultWorkspace } from "./seedWorkspace";
 
 const HistoryChartDialog = lazy(() => import("./HistoryChartDialog"));
 
-const initialHistory = [
-  { id: 3, expression: "√(2) + π / 7", value: { kind: "number", number: 1.862012077376797, full: "1.862012077376796985004668721836731291106586140266324758279159345760390983" } },
-  { id: 2, expression: "prior ÷ (log₁₀(10^64) + 1)", value: { kind: "large", sign: "", significand: "3.057294822950537", exponent: "1022", full: "3.057294822950537259286373091729847192504187759103445218936482103664918764203795018624 × 10^1022" } },
-  { id: 1, expression: "(τ × 10^512) ^ φ", value: { kind: "large", sign: "", significand: "1.987241634917849218536142", exponent: "1024", full: "1.987241634917849218536142897624451906847214981320447218049332918764303781920784391825304816973420198 × 10^1024" } },
-];
+const initialWorkspace = createDefaultWorkspace();
 
 const modes = ["Calculator", "Scientific", "Trigonometry", "Number theory", "Sequences", "Ordinal / hierarchy", "Programmer"];
 const keys = [
@@ -89,16 +86,16 @@ function historyReferences(items, options) {
 
 export function App() {
   const [storedWorkspace] = useState(readStoredWorkspace);
-  const [expression, setExpression] = useState(() => storedWorkspace?.expression ?? "√(2) + π / 7");
+  const [expression, setExpression] = useState(() => storedWorkspace?.expression ?? initialWorkspace.expression);
   const [base, setBase] = useState(() => storedWorkspace?.view?.base ?? storedWorkspace?.base ?? 10);
   const [precision, setPrecision] = useState(() => storedWorkspace?.view?.precision ?? storedWorkspace?.precision ?? 48);
   const [notation, setNotation] = useState(() => storedWorkspace?.view?.notation ?? storedWorkspace?.notation ?? "auto");
   const [groupDigits, setGroupDigits] = useState(() => storedWorkspace?.view?.groupDigits ?? true);
   const [activeMode, setActiveMode] = useState(() => storedWorkspace?.view?.activeMode ?? storedWorkspace?.activeMode ?? "Calculator");
-  const [history, setHistory] = useState(() => rebuildHistoryLedger(storedWorkspace?.history?.map((item) => ({ ...item, value: deserializeValue(item.value), state: "completed" })) ?? initialHistory.map((item) => ({ ...item, state: "completed" }))));
-  const [nextId, setNextId] = useState(() => storedWorkspace?.nextId ?? 4);
+  const [history, setHistory] = useState(() => rebuildHistoryLedger(storedWorkspace?.history?.map((item) => ({ ...item, value: deserializeValue(item.value), state: "completed" })) ?? initialWorkspace.history.map((item) => ({ ...item, state: "completed" }))));
+  const [nextId, setNextId] = useState(() => storedWorkspace?.nextId ?? initialWorkspace.nextId);
   const [memory, setMemory] = useState(() => storedWorkspace?.memory ? { ...storedWorkspace.memory, value: deserializeValue(storedWorkspace.memory.value) } : null);
-  const [previewValue, setPreviewValue] = useState(() => deserializeValue(storedWorkspace?.previewValue) ?? initialHistory[0].value);
+  const [previewValue, setPreviewValue] = useState(() => deserializeValue(storedWorkspace?.previewValue) ?? initialWorkspace.previewValue);
   const [calculation, setCalculation] = useState({ status: "idle", startedAt: 0 });
   const [showCalculating, setShowCalculating] = useState(false);
   const [toast, setToast] = useState("");
