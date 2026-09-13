@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChartNoAxesCombined, Check, CircleAlert, Copy, ExternalLink, FolderOpen, Info, PlaySquare, RotateCcw, Save } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, Check, CircleAlert, Copy, ExternalLink, FolderOpen, History, Info, PlaySquare, RotateCcw, Save, X } from "lucide-react";
 import { TableVirtuoso, Virtuoso } from "react-virtuoso";
 import { registerSW } from "virtual:pwa-register";
 import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, exportPrecision, formatAutomatically, formatDigitCountForInspector, formatForHighPrecisionExport, inspectAutomatically, serializeValue } from "./engine";
@@ -15,6 +15,7 @@ import { canActivatePwaUpdate, createPwaUpdateCoordinator, pwaUpdateCheckInterva
 import { createValuePresentationCache } from "./presentationCache";
 import { createDefaultWorkspace } from "./seedWorkspace";
 import { useDismissiblePopover } from "./useDismissiblePopover";
+import { shouldRestoreEditorFocus } from "./interactionModality";
 
 const HistoryChartDialog = lazy(() => import("./HistoryChartDialog"));
 
@@ -134,6 +135,9 @@ export function App() {
   const [sequenceRunCount, setSequenceRunCount] = useState("50");
   const [brandInfoOpen, setBrandInfoOpen] = useState(false);
   const [brandInfoHovered, setBrandInfoHovered] = useState(false);
+  const [historyDockOpen, setHistoryDockOpen] = useState(() => storedWorkspace?.view?.historyDockOpen ?? true);
+  const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
+  const [narrowWorkbench, setNarrowWorkbench] = useState(() => window.matchMedia("(max-width: 700px)").matches);
   const [expressionLines, setExpressionLines] = useState(1);
   const expressionRef = useRef(null);
   const memoryFeedbackTimer = useRef(null);
@@ -173,6 +177,7 @@ export function App() {
   const pwaUpdateCoordinatorRef = useRef(null);
   const brandInfoRef = useRef(null);
   const brandButtonRef = useRef(null);
+  const palettePointerTypeRef = useRef("");
   const brandInfoVisible = brandInfoOpen || brandInfoHovered;
   const dismissBrandInfo = useCallback(() => {
     setBrandInfoOpen(false);
@@ -195,6 +200,14 @@ export function App() {
   // the trusted tap/click itself. Selection restoration may wait for React's
   // controlled value update, but focus must not.
   const focusExpression = () => expressionRef.current?.focus({ preventScroll: true });
+  const shouldRestoreExpressionFocus = (event) => {
+    const pointerType = event?.nativeEvent?.pointerType || event?.pointerType || palettePointerTypeRef.current;
+    return shouldRestoreEditorFocus(pointerType);
+  };
+  const restoreExpressionFocus = (event) => {
+    if (shouldRestoreExpressionFocus(event)) focusExpression();
+    palettePointerTypeRef.current = "";
+  };
   function reportExpressionFailure(context, error) {
     const message = error instanceof Error ? error.message : String(error ?? "Unknown error");
     const detail = `${context}\n${error instanceof Error ? `${error.name}: ${message}` : message}${error instanceof Error && error.stack ? `\n\n${error.stack}` : ""}`;
@@ -228,10 +241,27 @@ export function App() {
   }, []);
   useEffect(() => {
     const strip = document.querySelector(".memory-strip");
-    const returnFocus = (event) => { if (!event.target.closest(".memory-chip")) focusExpression(); };
+    const returnFocus = (event) => { if (!event.target.closest(".memory-chip")) restoreExpressionFocus(event); };
     strip?.addEventListener("click", returnFocus);
     return () => strip?.removeEventListener("click", returnFocus);
   }, []);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 700px)");
+    const update = () => setNarrowWorkbench(query.matches);
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, []);
+  useEffect(() => {
+    if (!narrowWorkbench) setHistoryDrawerOpen(false);
+  }, [narrowWorkbench]);
+  useEffect(() => {
+    if (!historyDrawerOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setHistoryDrawerOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [historyDrawerOpen]);
   useEffect(() => {
     if (!import.meta.env.PROD || !("serviceWorker" in navigator)) return undefined;
     let clearUpdateChecks = () => {};
@@ -272,12 +302,12 @@ export function App() {
   useEffect(() => {
     workspacePersistenceRef.current.schedule(() => JSON.stringify({
         expression, nextId,
-        view: { base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection },
+        view: { base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection, historyDockOpen },
         previewValue: serializeValue(previewValue),
         history: history.filter((item) => item.state === "completed").map((item) => ({ id: item.id, expression: item.expression, value: serializeValue(item.value) })),
         memory: memory ? { ...memory, value: serializeValue(memory.value) } : null,
       }));
-  }, [expression, base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection, nextId, previewValue, history, memory]);
+  }, [expression, base, precision, notation, groupDigits, activeMode, functionView, exampleView, exampleSort, exampleSortDirection, historyDockOpen, nextId, previewValue, history, memory]);
   useEffect(() => {
     const flushWorkspace = () => workspacePersistenceRef.current?.flush();
     const flushWhenHidden = () => { if (document.visibilityState === "hidden") flushWorkspace(); };
@@ -692,34 +722,34 @@ export function App() {
     } catch { showMemoryFeedback("Memory could not be updated"); }
   }
 
-  function appendKey(key) {
+  function appendKey(key, event) {
     if (key === "f(x)") { openFunctionBrowser(); return; }
-    if (key === "=") { commit(); focusExpression(); return; }
-    if (key === "AC") { setExpression(""); setToast(""); focusExpression(); return; }
+    if (key === "=") { commit(); restoreExpressionFocus(event); return; }
+    if (key === "AC") { setExpression(""); setToast(""); restoreExpressionFocus(event); return; }
     if (key === "⌫") {
       const start = expressionRef.current?.selectionStart ?? expression.length;
       const end = expressionRef.current?.selectionEnd ?? start;
       const caret = start !== end ? start : Math.max(0, start - 1);
-      focusExpression();
+      restoreExpressionFocus(event);
       updatePreview(start !== end ? `${expression.slice(0, start)}${expression.slice(end)}` : `${expression.slice(0, caret)}${expression.slice(end)}`);
       requestAnimationFrame(() => expressionRef.current?.setSelectionRange(caret, caret));
       return;
     }
     if (key === "Ans") {
-      if (!completedHistory.length) { setToast("No History result available"); setTimeout(() => setToast(""), 1600); focusExpression(); return; }
+      if (!completedHistory.length) { setToast("No History result available"); setTimeout(() => setToast(""), 1600); restoreExpressionFocus(event); return; }
       updatePreview(`${expression}@history(-1)`);
-      focusExpression();
+      restoreExpressionFocus(event);
       return;
     }
-    if (key === "M+") { addToMemory(); focusExpression(); return; }
-    if (key.startsWith("Custom") || ["Fω(n)", "ω", "ω²", "ω^ω", "ε₀", "α", "Ordinal…"].includes(key)) { setToast("Reserved for the upcoming custom/ordinal engine"); setTimeout(() => setToast(""), 1600); focusExpression(); return; }
+    if (key === "M+") { addToMemory(); restoreExpressionFocus(event); return; }
+    if (key.startsWith("Custom") || ["Fω(n)", "ω", "ω²", "ω^ω", "ε₀", "α", "Ordinal…"].includes(key)) { setToast("Reserved for the upcoming custom/ordinal engine"); setTimeout(() => setToast(""), 1600); restoreExpressionFocus(event); return; }
     const input = expressionRef.current;
     const start = input?.selectionStart ?? expression.length;
     const end = input?.selectionEnd ?? start;
     const selected = expression.slice(start, end);
     const replaceSelection = (insert, caret = insert.length) => {
       const next = `${expression.slice(0, start)}${insert}${expression.slice(end)}`;
-      focusExpression();
+      restoreExpressionFocus(event);
       updatePreview(next);
       requestAnimationFrame(() => input?.setSelectionRange(start + caret, start + caret));
     };
@@ -727,7 +757,7 @@ export function App() {
       if (selected) return replaceSelection(`(${selected})`, selected.length + 2);
       const next = expression ? `(${expression})` : "()";
       const caret = expression ? next.length : 1;
-      focusExpression();
+      restoreExpressionFocus(event);
       updatePreview(next);
       requestAnimationFrame(() => input?.setSelectionRange(caret, caret));
       return;
@@ -1301,7 +1331,7 @@ export function App() {
         <span className="sr-only" role="status" aria-live="polite">{expressionError || toast || exportStatus}</span>
       </section>
       <section className="control-strip" aria-label="Display controls"><div className="control"><label>DISPLAY BASE</label><div className="segmented">{[10, 2, 16].map((item) => <button key={item} onClick={() => setBase(item)} className={base === item ? "selected" : ""}>{item === 10 ? "Decimal" : item === 2 ? "Binary" : "Hex"}</button>)}</div></div><div className="control precision"><label>DISPLAY PRECISION <strong>{precisionLabel} places</strong></label><input aria-label="Display precision" title="Logarithmic scale from 0 to 10,000 fractional places" type="range" min="0" max={precisionSliderSteps} step="1" value={precisionToSlider(precision)} onChange={(event) => setPrecision(sliderToPrecision(Number(event.target.value)))} /><div><span>0</span><span>10,000</span></div></div><div className="control notation"><div className="control-label-row"><label>NOTATION</label><button className={`grouping-toggle ${groupDigits ? "selected" : ""}`} aria-label="Group expanded decimal digits" aria-pressed={groupDigits} title="Group expanded decimal digits" onClick={() => setGroupDigits((enabled) => !enabled)}>,</button></div><select value={notation} onChange={(event) => setNotation(event.target.value)}><option value="auto">Auto</option><option value="decimal">Decimal</option><option value="scientific">Scientific</option><option value="engineering">Engineering</option><option value="expanded">Expanded</option></select></div></section>
-      <section className="desk">
+      <section className={`desk ${historyDockOpen ? "history-dock-open" : "history-dock-closed"} ${historyDrawerOpen ? "history-drawer-open" : ""}`}>
         <section className="keypad-panel" aria-label="Input palette">
           <div className="palette-heading">
             <div className={`palette-brand ${brandInfoVisible ? "open" : ""}`} ref={brandInfoRef} onPointerEnter={(event) => event.pointerType === "mouse" && setBrandInfoHovered(true)} onPointerLeave={() => setBrandInfoHovered(false)}>
@@ -1321,16 +1351,19 @@ export function App() {
               <select className="mode-select" aria-label="Input mode" value={activeMode} onChange={(event) => setActiveMode(event.target.value)}>{modes.map((mode) => <option key={mode}>{mode}</option>)}</select>
             </div>
           </div>
-          <div className="keypad">{paletteKeys.flat().map((key, index) => <button key={`${key || "future"}-${index}`} aria-hidden={key === ""} tabIndex={key === "" ? -1 : undefined} disabled={key === ""} aria-label={paletteHelp[key] ?? keyLabels[key] ?? `Insert ${key}`} title={paletteHelp[key]} className={key === "" ? "key placeholder" : key === "=" ? "key equal" : ["AC", "⌫"].includes(key) ? "key utility" : ["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ", "sin", "cos", "tan", "ln", "log", "!", "π", "e", "τ", "φ", "abs", "mod", "%", "↑", "↑↑", "@n", "min", "max", "Fₙ", "Lₙ", "pₙ", "π(n)", "P(n)", "Cₙ", "Bₙ", "Tₙ", "Hₙ", "Jₙ", "Yₙ", "S(n,k)", "nCr", "F₁(n)", "F₂(n)", "F₃(n)", "F₄(n)", "F₅(n)"].includes(key) ? "key function" : "key"} onClick={() => appendKey(key)}>{key}</button>)}</div>
+          <div className="keypad">{paletteKeys.flat().map((key, index) => <button key={`${key || "future"}-${index}`} aria-hidden={key === ""} tabIndex={key === "" ? -1 : undefined} disabled={key === ""} aria-label={paletteHelp[key] ?? keyLabels[key] ?? `Insert ${key}`} title={paletteHelp[key]} className={key === "" ? "key placeholder" : key === "=" ? "key equal" : ["AC", "⌫"].includes(key) ? "key utility" : ["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ", "sin", "cos", "tan", "ln", "log", "!", "π", "e", "τ", "φ", "abs", "mod", "%", "↑", "↑↑", "@n", "min", "max", "Fₙ", "Lₙ", "pₙ", "π(n)", "P(n)", "Cₙ", "Bₙ", "Tₙ", "Hₙ", "Jₙ", "Yₙ", "S(n,k)", "nCr", "F₁(n)", "F₂(n)", "F₃(n)", "F₄(n)", "F₅(n)"].includes(key) ? "key function" : "key"} onPointerDown={(event) => { palettePointerTypeRef.current = event.pointerType; }} onClick={(event) => appendKey(key, event)}>{key}</button>)}</div>
           <div className="shortcut-row"><span>Enter <b>save</b></span><span>Esc <b>clear</b></span><span>result click <b>inspect</b></span></div>
         </section>
-        <div className="trail-panel">
+        <nav className="sidebar-selector" aria-label="Workbench panels">
+          <button type="button" className={narrowWorkbench ? historyDrawerOpen ? "selected" : "" : historyDockOpen ? "selected" : ""} aria-label={narrowWorkbench ? `${historyDrawerOpen ? "Close" : "Open"} History` : `${historyDockOpen ? "Hide" : "Show"} History`} aria-pressed={narrowWorkbench ? historyDrawerOpen : historyDockOpen} title={narrowWorkbench ? `${historyDrawerOpen ? "Close" : "Open"} History` : `${historyDockOpen ? "Hide" : "Show"} History`} onClick={() => narrowWorkbench ? setHistoryDrawerOpen((open) => !open) : setHistoryDockOpen((open) => !open)}><History aria-hidden="true" /><span>History</span></button>
+        </nav>
+        <div className="trail-panel" aria-hidden={narrowWorkbench ? !historyDrawerOpen : !historyDockOpen}>
           <div className="panel-heading">
             <div><p className="eyebrow">HISTORY</p><h2>{completedHistory.length} calculations{pendingHistory.length ? <span className="history-queue-count"> · {pendingHistory.length} queued</span> : null}</h2></div>
             <div className="history-toolbar">
               <button className="quiet examples-button" aria-haspopup="dialog" title="Browse verified example notebooks" onClick={openExamplesBrowser}>Examples</button>
               <button className="history-icon" aria-label="Chart History" title="Chart History" onClick={() => setHistoryChartOpen(true)}><ChartNoAxesCombined aria-hidden="true" /></button>
-              <button className="history-icon" aria-label="Download History notebook" title="Download History notebook" onClick={openExportDialog}><Save aria-hidden="true" /></button><button className="history-icon" aria-label="Import History notebook" title="Import History notebook" onClick={() => importInputRef.current?.click()}><FolderOpen aria-hidden="true" /></button><button className="history-icon reset-history" aria-label="Reset History" title="Reset History" onClick={() => { cancelHistoryQueue(); historyRef.current = []; nextIdRef.current = 1; setHistory([]); setNextId(1); }}><RotateCcw aria-hidden="true" /></button><input ref={importInputRef} className="file-input" type="file" accept="application/json,.json" onChange={readNotebookFile} />
+              <button className="history-icon" aria-label="Download History notebook" title="Download History notebook" onClick={openExportDialog}><Save aria-hidden="true" /></button><button className="history-icon" aria-label="Import History notebook" title="Import History notebook" onClick={() => importInputRef.current?.click()}><FolderOpen aria-hidden="true" /></button><button className="history-icon reset-history" aria-label="Reset History" title="Reset History" onClick={() => { cancelHistoryQueue(); historyRef.current = []; nextIdRef.current = 1; setHistory([]); setNextId(1); }}><RotateCcw aria-hidden="true" /></button><button className="history-icon history-drawer-close" aria-label="Close History" title="Close History" onClick={() => setHistoryDrawerOpen(false)}><X aria-hidden="true" /></button><input ref={importInputRef} className="file-input" type="file" accept="application/json,.json" onChange={readNotebookFile} />
             </div>
           </div>
           {transferStatus && <div className="transfer-status" role="status">{transferStatus}{notebookOperationRef.current && <button onClick={cancelNotebookOperation}>Cancel</button>}</div>}
