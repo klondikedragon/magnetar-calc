@@ -14,7 +14,16 @@
 .mode-select { margin-top: 3px; border: 0; background: transparent; color: #263137; font-weight: 700; font-size: clamp(16px, 1.5vw, 19px); letter-spacing: -.045em; padding: 0 20px 0 0; }
 .mode-select:focus { outline: 2px solid #b7d852; outline-offset: 3px; border-radius: 3px; }
 .palette-heading { display: flex; align-items: center; justify-content: space-between; min-height: 56px; padding-bottom: 12px; }
-.palette-brand-icon { width: 52px; height: 52px; border-radius: 12px; box-shadow: 0 2px 7px rgba(29, 43, 51, .13); opacity: .25; }
+.palette-brand { position: relative; flex: 0 0 auto; }
+.palette-brand-button { display: block; border: 0; border-radius: 12px; background: transparent; padding: 0; }
+.palette-brand-icon { display: block; width: 52px; height: 52px; border-radius: 12px; box-shadow: 0 2px 7px rgba(29, 43, 51, .13); opacity: .4; transition: opacity 180ms ease, box-shadow 180ms ease; }
+.palette-brand:hover .palette-brand-icon, .palette-brand.open .palette-brand-icon, .palette-brand-button:focus-visible .palette-brand-icon { opacity: 1; box-shadow: 0 3px 10px rgba(29, 43, 51, .2); }
+.palette-brand-popover { position: absolute; z-index: 30; top: calc(100% + 7px); left: 0; width: max-content; max-width: min(230px, calc(100vw - 30px)); visibility: hidden; opacity: 0; transform: translateY(-3px); pointer-events: none; padding: 7px 9px; border: 1px solid #d8ddd2; border-radius: 6px; background: #fffefa; box-shadow: 0 8px 22px rgba(29, 43, 51, .15); color: #526064; transition: opacity 140ms ease, transform 140ms ease, visibility 0s linear 140ms; }
+.palette-brand-popover strong, .palette-brand-popover span { display: block; }
+.palette-brand-popover strong { color: #293638; font-size: 11px; }
+.palette-brand-popover span { margin-top: 2px; color: #73807f; font: 9px "DM Mono", monospace; }
+.palette-brand.open .palette-brand-popover { visibility: visible; opacity: 1; transform: translateY(0); transition-delay: 0s; }
+@media (prefers-reduced-motion: reduce) { .palette-brand-icon, .palette-brand-popover { transition: none; } }
 .palette-controls { min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .palette-controls .mode-select { margin-top: 0; }
 .expression-status { position: fixed; top: 10px; right: 14px; z-index: 4; color: #8a5b36; background: #fff8ee; border: 1px solid #efd8bd; border-radius: 999px; padding: 5px 9px; font-size: 10px; box-shadow: 0 3px 12px rgba(57, 42, 26, .08); }

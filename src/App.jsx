@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, ChartNoAxesCombined, Check, CircleAlert, Copy, ExternalLink, FolderOpen, Info, PlaySquare, RotateCcw, Save } from "lucide-react";
 import { TableVirtuoso, Virtuoso } from "react-virtuoso";
 import { registerSW } from "virtual:pwa-register";
@@ -13,10 +13,12 @@ import { createCoalescedPersistence } from "./coalescedPersistence";
 import { canActivatePwaUpdate, createPwaUpdateCoordinator, pwaUpdateCheckIntervalMs } from "./pwaUpdatePolicy";
 import { createValuePresentationCache } from "./presentationCache";
 import { createDefaultWorkspace } from "./seedWorkspace";
+import { useDismissiblePopover } from "./useDismissiblePopover";
 
 const HistoryChartDialog = lazy(() => import("./HistoryChartDialog"));
 
 const initialWorkspace = createDefaultWorkspace();
+const appVersion = typeof __MAGNETAR_VERSION__ === "string" ? __MAGNETAR_VERSION__ : "vdev-local";
 
 const modes = ["Calculator", "Scientific", "Trigonometry", "Number theory", "Sequences", "Ordinal / hierarchy", "Programmer"];
 const keys = [
@@ -129,6 +131,8 @@ export function App() {
   const [fullInfoSubject, setFullInfoSubject] = useState(null);
   const [sequenceRunOpen, setSequenceRunOpen] = useState(false);
   const [sequenceRunCount, setSequenceRunCount] = useState("50");
+  const [brandInfoOpen, setBrandInfoOpen] = useState(false);
+  const [brandInfoHovered, setBrandInfoHovered] = useState(false);
   const [expressionLines, setExpressionLines] = useState(1);
   const expressionRef = useRef(null);
   const memoryFeedbackTimer = useRef(null);
@@ -166,6 +170,14 @@ export function App() {
   const pwaUpdateRef = useRef(null);
   const pwaUpdateSafeRef = useRef(false);
   const pwaUpdateCoordinatorRef = useRef(null);
+  const brandInfoRef = useRef(null);
+  const brandButtonRef = useRef(null);
+  const brandInfoVisible = brandInfoOpen || brandInfoHovered;
+  const dismissBrandInfo = useCallback(() => {
+    setBrandInfoOpen(false);
+    setBrandInfoHovered(false);
+  }, []);
+  useDismissiblePopover(brandInfoVisible, dismissBrandInfo, brandInfoRef, brandButtonRef);
   if (!workspacePersistenceRef.current) {
     workspacePersistenceRef.current = createCoalescedPersistence({
       write: (snapshot) => window.localStorage.setItem(storageKey, snapshot),
@@ -1272,7 +1284,15 @@ export function App() {
       <section className="desk">
         <section className="keypad-panel" aria-label="Input palette">
           <div className="palette-heading">
-            <img className="palette-brand-icon" src="/icons/icon-192.png" alt="" aria-hidden="true" />
+            <div className={`palette-brand ${brandInfoVisible ? "open" : ""}`} ref={brandInfoRef} onPointerEnter={(event) => event.pointerType === "mouse" && setBrandInfoHovered(true)} onPointerLeave={() => setBrandInfoHovered(false)}>
+              <button className="palette-brand-button" ref={brandButtonRef} type="button" aria-label={`Magnetar Calculator, version ${appVersion}`} aria-expanded={brandInfoVisible} aria-controls="magnetar-version" onClick={() => setBrandInfoOpen((open) => !open)}>
+                <img className="palette-brand-icon" src="/icons/icon-192.png" alt="" aria-hidden="true" />
+              </button>
+              <span className="palette-brand-popover" id="magnetar-version" role="tooltip">
+                <strong>Magnetar Calculator</strong>
+                <span>Version {appVersion}</span>
+              </span>
+            </div>
             <div className="palette-controls">
               <div className="memory-strip">
                 {memoryDisplay && <button className="memory-chip selectable-output" aria-label={resultLabel(memoryDisplay, "Open memory")} title={`${memoryTooltip} · click to inspect memory`} onClick={openMemory}>M {memoryDisplay.sign}{memoryDisplay.significand}{memoryDisplay.exponent && ` × 10^${memoryDisplay.exponent}`}</button>}

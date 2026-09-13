@@ -1,8 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { readBuildVersion } from "./scripts/build-version.mjs";
 
 export default defineConfig({
+  define: {
+    __MAGNETAR_VERSION__: JSON.stringify(readBuildVersion()),
+  },
   build: {
     outDir: "dist/client",
   },
