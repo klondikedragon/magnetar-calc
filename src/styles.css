@@ -14,7 +14,7 @@
 .mode-select { margin-top: 3px; border: 0; background: transparent; color: #263137; font-weight: 700; font-size: clamp(16px, 1.5vw, 19px); letter-spacing: -.045em; padding: 0 20px 0 0; }
 .mode-select:focus { outline: 2px solid #b7d852; outline-offset: 3px; border-radius: 3px; }
 .palette-heading { display: flex; align-items: center; justify-content: space-between; min-height: 56px; padding-bottom: 12px; }
-.palette-brand-icon { width: 52px; height: 52px; border-radius: 12px; box-shadow: 0 2px 7px rgba(29, 43, 51, .13); opacity: .72; }
+.palette-brand-icon { width: 52px; height: 52px; border-radius: 12px; box-shadow: 0 2px 7px rgba(29, 43, 51, .13); opacity: .25; }
 .palette-controls { min-width: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .palette-controls .mode-select { margin-top: 0; }
 .expression-status { position: fixed; top: 10px; right: 14px; z-index: 4; color: #8a5b36; background: #fff8ee; border: 1px solid #efd8bd; border-radius: 999px; padding: 5px 9px; font-size: 10px; box-shadow: 0 3px 12px rgba(57, 42, 26, .08); }
