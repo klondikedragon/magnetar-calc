@@ -51,13 +51,13 @@ must be preserved throughout.
 
 ### 2. Make digit grouping linear
 
-- [ ] Replace every repeated-look-ahead grouping expression with one shared
+- [x] Replace every repeated-look-ahead grouping expression with one shared
   linear-time implementation.
-- [ ] Cover signs, short leading groups, fractions, and already-separated
+- [x] Cover signs, short leading groups, fractions, and already-separated
   integer/fraction paths.
-- [ ] Add correctness tests and a scaling benchmark at representative large
+- [x] Add correctness tests and a scaling benchmark at representative large
   sizes, including 6,002 and 100,000 digits.
-- [ ] Commit this slice separately and report the commit hash as the first
+- [x] Commit this slice separately and report the commit hash as the first
   push-ready checkpoint.
 
 ### 3. Avoid repeated presentation work

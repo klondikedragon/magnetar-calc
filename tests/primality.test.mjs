@@ -3,6 +3,10 @@ import test from "node:test";
 import BreakDecimal from "break_eternity.js";
 import { analyzePrimality, analyzePrimeFactors, deserializeValue, digitCountAutomatically, evaluateAutomatically, evaluateWithAnalysis, formatAutomatically, formatDigitCountForInspector, formatForCopy, formatForHighPrecisionExport, formatPrimeFactors, inspectAutomatically, serializeValue } from "../src/engine.js";
 
+function groupedLength(digitCount) {
+  return digitCount + Math.floor((digitCount - 1) / 3);
+}
+
 test("verifies prime and composite exact integers within the deterministic range", () => {
   const prime = analyzePrimality(evaluateAutomatically("97"));
   const composite = analyzePrimality(evaluateAutomatically("221"));
@@ -77,6 +81,18 @@ test("clipboard formatting honors Decimal notation at full engine precision", ()
   assert.equal(copied, "16191462721115671781777559070120513664958590125499158514329308740975788034");
   const grouped = formatForCopy(value, { base: 10, notation: "decimal", groupDigits: true });
   assert.equal(grouped, "16,191,462,721,115,671,781,777,559,070,120,513,664,958,590,125,499,158,514,329,308,740,975,788,034");
+});
+
+test("digit grouping remains correct and practical for very large exact integers", () => {
+  const digits = `1${"2".repeat(99_998)}3`;
+  const value = deserializeValue({ kind: "exact-integer", integer: digits });
+  const startedAt = performance.now();
+  const formatted = formatForHighPrecisionExport(value, { base: 10, groupDigits: true });
+  const elapsed = performance.now() - startedAt;
+  assert.equal(formatted.length, groupedLength(digits.length));
+  assert.match(formatted, /^1,222,222/);
+  assert.match(formatted, /222,223$/);
+  assert.ok(elapsed < 2_000, `100,000-digit grouping took ${elapsed.toFixed(1)} ms`);
 });
 
 test("display places do not change exact rational representation", () => {

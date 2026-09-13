@@ -994,7 +994,7 @@ export function formatAutomatically(value, options = {}) {
     const formatted = formatExact(value, options);
     if (!options.groupDigits || options.base !== 10 || formatted.exponent || !/^\d+(?:\.\d+)?$/.test(formatted.significand)) return formatted;
     const [whole, fraction] = formatted.significand.split(".");
-    const grouped = `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${fraction ? `.${fraction}` : ""}`;
+    const grouped = `${groupWholeDigits(whole)}${fraction ? `.${fraction}` : ""}`;
     return { ...formatted, significand: grouped, text: `${formatted.sign}${grouped}` };
   }
   if (value.kind === "steinhaus-moser") return {
@@ -1022,7 +1022,7 @@ export function formatAutomatically(value, options = {}) {
       : placeholderEngine.format(value, options);
   if (!options.groupDigits || options.base !== 10 || formatted.exponent || formatted.tower || formatted.knuth || !/^\d+(?:\.\d+)?$/.test(formatted.significand)) return formatted;
   const [whole, fraction] = formatted.significand.split(".");
-  const grouped = `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${fraction ? `.${fraction}` : ""}`;
+  const grouped = `${groupWholeDigits(whole)}${fraction ? `.${fraction}` : ""}`;
   return { ...formatted, significand: grouped, text: `${formatted.sign}${grouped}` };
 }
 
@@ -1036,7 +1036,13 @@ export function formatForCopy(value, options = {}) {
 // Export is deliberately separate from normal rendering: it may format a
 // worker-produced 10M-digit Decimal without raising the on-screen ceiling.
 export function formatForHighPrecisionExport(value, options = {}) {
-  if (isExactValue(value)) return value.kind === "exact-integer" ? exactParts(value).numerator.toString() : `${value.numerator}/${value.denominator}`;
+  if (isExactValue(value)) {
+    if (value.kind === "exact-integer") {
+      const text = exactParts(value).numerator.toString();
+      return options.groupDigits ? groupWholeDigits(text) : text;
+    }
+    return `${value.numerator}/${value.denominator}`;
+  }
   const maximumLength = options.maximumLength ?? exportPrecision;
   if (value?.kind !== "decimal.js" || options.base !== 10) return formatForCopy(value, options);
   const decimal = value.decimal;
@@ -1048,7 +1054,7 @@ export function formatForHighPrecisionExport(value, options = {}) {
     text = rounded.toFixed().replace(/(\.[0-9]*?)0+$/, "$1").replace(/\.$/, "");
     if (options.groupDigits) {
       const [whole, fraction] = text.split(".");
-      text = `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${fraction ? `.${fraction}` : ""}`;
+      text = `${groupWholeDigits(whole)}${fraction ? `.${fraction}` : ""}`;
     }
   } else {
     text = rounded.toExponential().replace(/e\+/, "e");
@@ -1122,7 +1128,17 @@ export function digitCountAutomatically(value, base = 10) {
 }
 
 function groupWholeDigits(text) {
-  return text.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const source = String(text);
+  const hasSign = source[0] === "-" || source[0] === "+" || source[0] === "−";
+  const sign = hasSign ? source[0] : "";
+  const digits = hasSign ? source.slice(1) : source;
+  if (digits.length <= 3) return source;
+  const firstGroupLength = digits.length % 3 || 3;
+  const groups = [digits.slice(0, firstGroupLength)];
+  for (let index = firstGroupLength; index < digits.length; index += 3) {
+    groups.push(digits.slice(index, index + 3));
+  }
+  return `${sign}${groups.join(",")}`;
 }
 
 function compactDigitCount(decimal) {
