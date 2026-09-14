@@ -19,6 +19,7 @@ import { resolveActionPointerType, shouldRestoreEditorFocus } from "./interactio
 import { prepareWorkspaceHydration } from "./workspaceHydration";
 import { appearancePreferences, normalizeAppearancePreference, resolveAppearance } from "./appearance";
 import { normalizePaletteMode, paletteModes } from "./paletteModes";
+import { wrapExpressionForContinuation } from "./expressionContinuation";
 
 const HistoryChartDialog = lazy(() => import("./HistoryChartDialog"));
 
@@ -49,7 +50,7 @@ const maximumQueuedHistorySaves = 10_000;
 const precisionSliderSteps = 1000;
 const precisionToSlider = (digits) => digits <= 0 ? 0 : Math.round((Math.log10(Math.min(digits, maximumDisplayPrecision) + 1) / Math.log10(maximumDisplayPrecision + 1)) * precisionSliderSteps);
 const sliderToPrecision = (position) => position <= 0 ? 0 : Math.round((10 ** ((position / precisionSliderSteps) * Math.log10(maximumDisplayPrecision + 1))) - 1);
-const keyLabels = { AC: "Clear expression", "⌫": "Backspace", "(·)": "Wrap selected text, or the whole expression, in parentheses", Ans: "Insert latest History result — @history(-1)", "f(x)": "Browse and insert a function", "=": "Calculate and save to History", "x²": "Square", "xʸ": "Raise to a power", "√x": "Square root", "ⁿ√x": "Nth root", "10ˣ": "Ten to a power", "eˣ": "Euler's number to a power", "π": "Insert pi", "τ": "Insert tau", "↑": "Insert Knuth up arrow", "↑↑": "Insert Knuth double up arrow", "−": "Subtract", "×": "Multiply", "÷": "Divide", "@n": "Insert the next sequence position", min: "Insert minimum function", max: "Insert maximum function" };
+const keyLabels = { AC: "Clear expression", "⌫": "Backspace", "(·)": "Wrap selected text, or the whole expression, in parentheses", Ans: "Insert latest History result — @history(-1)", "f(x)": "Browse and insert a function", "=": "Save to History and continue from this expression", "x²": "Square", "xʸ": "Raise to a power", "√x": "Square root", "ⁿ√x": "Nth root", "10ˣ": "Ten to a power", "eˣ": "Euler's number to a power", "π": "Insert pi", "τ": "Insert tau", "↑": "Insert Knuth up arrow", "↑↑": "Insert Knuth double up arrow", "−": "Subtract", "×": "Multiply", "÷": "Divide", "@n": "Insert the next sequence position", min: "Insert minimum function", max: "Insert maximum function" };
 const functionKeys = new Set(["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ", "sin", "cos", "tan", "ln", "log", "!", "π", "e", "τ", "φ", "abs", "mod", "%", "↑", "↑↑", "@n", "min", "max", "Fₙ", "Lₙ", "pₙ", "π(n)", "P(n)", "Cₙ", "Bₙ", "Tₙ", "Hₙ", "Jₙ", "Yₙ", "S(n,k)", "nCr", "F₁(n)", "F₂(n)", "F₃(n)", "F₄(n)", "F₅(n)"]);
 const operatorKeys = new Set(["÷", "×", "−", "+"]);
 
@@ -702,11 +703,11 @@ export function App() {
 
   function commit() {
     const source = expression.trim();
-    if (!source) return;
+    if (!source) return false;
     if (pendingHistory.length >= maximumQueuedHistorySaves) {
       setToast(`History save queue is limited to ${maximumQueuedHistorySaves.toLocaleString()} items`);
       setTimeout(() => setToast(""), 1800);
-      return;
+      return false;
     }
     const id = nextIdRef.current;
     nextIdRef.current += 1;
@@ -716,6 +717,7 @@ export function App() {
     setHistory(nextHistory);
     traceHistoryQueue({ event: "queued", id, revision: nextHistory[0].revision });
     processHistoryQueue();
+    return true;
   }
 
   const hasDynamicHistoryExpression = /@n\b|@history\(/.test(expression);
@@ -802,7 +804,15 @@ export function App() {
 
   function appendKey(key, event) {
     if (key === "f(x)") { palettePointerTypeRef.current = ""; openFunctionBrowser(); return; }
-    if (key === "=") { commit(); restoreExpressionFocus(event); return; }
+    if (key === "=") {
+      if (commit()) {
+        const continuedExpression = wrapExpressionForContinuation(expression);
+        if (continuedExpression !== expression) updatePreview(continuedExpression);
+        requestAnimationFrame(() => expressionRef.current?.setSelectionRange(continuedExpression.length, continuedExpression.length));
+      }
+      restoreExpressionFocus(event);
+      return;
+    }
     if (key === "AC") { setExpression(""); setToast(""); restoreExpressionFocus(event); return; }
     if (key === "⌫") {
       const start = expressionRef.current?.selectionStart ?? expression.length;
@@ -953,7 +963,7 @@ export function App() {
     if (!target) return;
     clearTimeout(copyFeedbackTimerRef.current);
     setCopiedTarget(target);
-    copyFeedbackTimerRef.current = setTimeout(() => setCopiedTarget(null), 1200);
+    copyFeedbackTimerRef.current = setTimeout(() => setCopiedTarget(null), 1800);
   }
 
   async function copyDisplayed(value, target) {
@@ -961,8 +971,6 @@ export function App() {
       const text = value?.kind === "steinhaus-moser" ? value.canonical : formatAutomatically(value, { base, precision, notation, groupDigits }).text;
       await navigator.clipboard.writeText(text);
       markCopied(target);
-      setToast(value?.kind === "steinhaus-moser" ? "Canonical construction copied" : "Displayed result copied");
-      setTimeout(() => setToast(""), 1500);
     }
     catch { setCopiedTarget(null); setToast("Copy is available in the browser"); }
   }
@@ -971,8 +979,6 @@ export function App() {
     try {
       await navigator.clipboard.writeText(String(text));
       markCopied(target);
-      setToast(`${label} copied`);
-      setTimeout(() => setToast(""), 1500);
     } catch { setCopiedTarget(null); setToast("Copy is available in the browser"); }
   }
 
@@ -983,7 +989,7 @@ export function App() {
     setTimeout(() => setExportStatus(""), 1800);
   }
 
-  function exportHighPrecision(sourceExpression) {
+  function exportHighPrecision(sourceExpression, target) {
     if (!sourceExpression?.trim() || exportWorkerRef.current) return;
     setExportStatus("Recalculating up to 10M digits…");
     const worker = new Worker(new URL("./calculation-worker.js", import.meta.url), { type: "module" });
@@ -1002,14 +1008,18 @@ export function App() {
       exportWorkerRef.current = null;
       if (data.type === "error") {
         setExportStatus(data.message === "engine range exceeded" ? "This expression requires the wide-range engine" : "10M-digit export could not be calculated");
+        setTimeout(() => setExportStatus(""), 2200);
         return;
       }
       try {
         const value = deserializeValue(data.value);
         await navigator.clipboard.writeText(formatForHighPrecisionExport(value, { base, groupDigits }));
-        setExportStatus("Up to 10M digits copied");
-      } catch { setExportStatus("Copy is available in the browser"); }
-      setTimeout(() => setExportStatus(""), 2200);
+        markCopied(target);
+        setExportStatus("");
+      } catch {
+        setExportStatus("Copy is available in the browser");
+        setTimeout(() => setExportStatus(""), 2200);
+      }
     };
     worker.postMessage({ expression: sourceExpression, references: workerReferences, options: { calculationPrecision: exportPrecision, forceDecimal: true } });
   }
@@ -1356,6 +1366,10 @@ export function App() {
     return <><span className="sign">{formatted.sign}</span><span>{formatted.significand}</span>{formatted.exponent && <span className="result-exponent">× {(formatted.radix ?? base) === 10 ? "10" : (formatted.radix ?? base)}<sup>{formatted.exponent}</sup></span>}</>;
   };
   const CopyFeedback = ({ target }) => <span className={`copy-feedback ${copiedTarget === target ? "copied" : ""}`} aria-hidden="true">{copiedTarget === target ? <Check /> : <Copy />}</span>;
+  const CopyActionButton = ({ target, label, copiedLabel = "Copied", onClick, disabled = false, title }) => {
+    const copied = copiedTarget === target;
+    return <button className={`copy-action-button ${copied ? "copied" : ""}`} onClick={onClick} disabled={disabled} title={title}>{copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}<span>{copied ? copiedLabel : label}</span></button>;
+  };
   const InspectorCopyValue = ({ label, text, className = "" }) => { const target = `inspector:${label}:${text}`; return <button className={`inspector-copy-value copyable-value ${className}`} onClick={() => copyText(text, label, target)} title={`Copy ${label}: ${text}`}><span>{label}<CopyFeedback target={target} /></span><b>{text}</b></button>; };
   const InspectorSummary = ({ data, subject }) => {
     const digitEstimate = data.facts?.find((fact) => fact.id === "decimal-digit-estimate");
@@ -1364,10 +1378,10 @@ export function App() {
       <InspectorCopyValue label="status" text={data.precisionLost ? "magnitude-only" : data.exactness ?? "approximate"} />
       <InspectorCopyValue label="precision" text={data.precision ?? `${precisionLabel} digits`} />
       {digitEstimate && <InspectorCopyValue label="base-10 digit estimate" text={digitEstimate.value} />}
-      <div className="summary-actions"><button className="summary-action" onClick={() => copyDisplayed(subject.value)} title={subject.value?.kind === "steinhaus-moser" || subject.value?.kind === "structural-power" || subject.value?.kind === "extended-scale" ? "Copy the canonical construction syntax" : "Copy the result in the current display format"}>Copy</button>{subject.value?.kind !== "steinhaus-moser" && subject.value?.kind !== "structural-power" && subject.value?.kind !== "extended-scale" && <button className="summary-action" onClick={() => exportHighPrecision(subject.sourceExpression)} disabled={Boolean(exportWorkerRef.current)} title="Recalculate this expression with up to 10,000,000 significant digits, then copy it">10M</button>}<button className="full-info-button" onClick={() => openFullInfo(subject)} title="Open complete value details">Full info</button></div>
+      <div className="summary-actions"><CopyActionButton target="summary-copy" label="Copy" onClick={() => copyDisplayed(subject.value, "summary-copy")} title={subject.value?.kind === "steinhaus-moser" || subject.value?.kind === "structural-power" || subject.value?.kind === "extended-scale" ? "Copy the canonical construction syntax" : "Copy the result in the current display format"} />{subject.value?.kind !== "steinhaus-moser" && subject.value?.kind !== "structural-power" && subject.value?.kind !== "extended-scale" && <CopyActionButton target="summary-10m" label="10M" onClick={() => exportHighPrecision(subject.sourceExpression, "summary-10m")} disabled={Boolean(exportWorkerRef.current)} title="Recalculate this expression with up to 10,000,000 significant digits, then copy it" />}<button className="full-info-button" onClick={() => openFullInfo(subject)} title="Open complete value details">Full info</button></div>
     </div>;
   };
-  const FullInfoDetails = ({ value, data, digits, sourceExpression }) => <section className="full-info-details"><div className="full-info-summary"><InspectorCopyValue label="engine" text={data.engine ?? value.engineLabel ?? "placeholder"} /><InspectorCopyValue label="representation" text={data.representation ?? "native"} /><InspectorCopyValue label="precision" text={data.precision ?? `${precisionLabel} digits`} /><InspectorCopyValue label="status" text={data.precisionLost ? "magnitude-only" : data.exactness ?? "approximate"} />{value.exactInteger && <InspectorCopyValue label="integer" text="exact" />}{primalityLabel(value) && <InspectorCopyValue label="primality" text={`${primalityLabel(value)}${value.primality?.method ? ` · ${value.primality.method}` : ""}`} />}{digits?.value && <InspectorCopyValue label={`base-${base} digits`} text={`${formatDigitCountForInspector(digits, { groupDigits })} · ${digits.certainty}`} />}</div>{data.canonical && <section className="full-info-structural"><p>STRUCTURAL FORM</p><InspectorCopyValue className="wide-value" label="canonical form" text={data.canonical} />{data.derivation && <InspectorCopyValue className="wide-value" label="derivation" text={data.derivation} />}</section>}{data.facts?.length > 0 && <section className="magnitude-dossier" aria-label="Magnitude dossier"><p>MAGNITUDE DOSSIER</p>{data.facts.map((fact) => <button className="magnitude-fact" key={fact.id} onClick={() => copyText(fact.value, fact.label)} title={`Copy ${fact.label}: ${fact.value}`}><span>{fact.label}</span><b>{fact.value}</b><small>{fact.certainty}</small></button>)}</section>}<div className="full-info-actions"><button onClick={() => copyDisplayed(value)} title={value?.kind === "steinhaus-moser" || value?.kind === "structural-power" || value?.kind === "extended-scale" ? "Copy the canonical construction syntax" : "Copy the result in the current display format"}>Copy result</button>{value?.kind !== "steinhaus-moser" && value?.kind !== "structural-power" && value?.kind !== "extended-scale" && <button onClick={() => exportHighPrecision(sourceExpression)} disabled={Boolean(exportWorkerRef.current)} title="Recalculate this expression with up to 10,000,000 significant digits, then copy it">Copy (10M digits)</button>}{data.provenance?.length > 0 && <button aria-expanded={provenanceOpen} onClick={() => setProvenanceOpen((open) => !open)} title="Show the rules, assumptions, evidence, and references behind these facts">Provenance</button>}</div>{provenanceOpen && data.provenance?.length > 0 && <section className="provenance-panel" aria-label="Calculation provenance"><p>CALCULATION PROVENANCE</p>{data.provenance.map((claim) => <article className="provenance-claim" key={claim.claim}><header><button className="provenance-claim-copy" onClick={() => copyText(claim.claim, "Claim")} title={`Copy claim: ${claim.claim}`}>{claim.claim}</button><small>{claim.certainty}</small></header><button className="provenance-rule-copy" onClick={() => copyText(claim.rule, "Rule")} title={`Copy rule: ${claim.rule}`}>{claim.rule}</button><button className="provenance-approach-copy" onClick={() => copyText(claim.approach, "Approach")} title="Copy evidence approach">{claim.approach}</button><div className="provenance-inputs"><span>Inputs</span><button onClick={() => copyText(claim.inputs.base, "Base")} title="Copy base">base {claim.inputs.base}</button><button onClick={() => copyText(claim.inputs.exponent, "Exponent")} title="Copy exponent">exponent {claim.inputs.exponent}</button></div><div className="provenance-sources">{claim.sources.map((source) => <a key={source.id} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</div></article>)}</section>}</section>;
+  const FullInfoDetails = ({ value, data, digits, sourceExpression }) => <section className="full-info-details"><div className="full-info-summary"><InspectorCopyValue label="engine" text={data.engine ?? value.engineLabel ?? "placeholder"} /><InspectorCopyValue label="representation" text={data.representation ?? "native"} /><InspectorCopyValue label="precision" text={data.precision ?? `${precisionLabel} digits`} /><InspectorCopyValue label="status" text={data.precisionLost ? "magnitude-only" : data.exactness ?? "approximate"} />{value.exactInteger && <InspectorCopyValue label="integer" text="exact" />}{primalityLabel(value) && <InspectorCopyValue label="primality" text={`${primalityLabel(value)}${value.primality?.method ? ` · ${value.primality.method}` : ""}`} />}{digits?.value && <InspectorCopyValue label={`base-${base} digits`} text={`${formatDigitCountForInspector(digits, { groupDigits })} · ${digits.certainty}`} />}</div>{data.canonical && <section className="full-info-structural"><p>STRUCTURAL FORM</p><InspectorCopyValue className="wide-value" label="canonical form" text={data.canonical} />{data.derivation && <InspectorCopyValue className="wide-value" label="derivation" text={data.derivation} />}</section>}{data.facts?.length > 0 && <section className="magnitude-dossier" aria-label="Magnitude dossier"><p>MAGNITUDE DOSSIER</p>{data.facts.map((fact) => <button className="magnitude-fact" key={fact.id} onClick={() => copyText(fact.value, fact.label)} title={`Copy ${fact.label}: ${fact.value}`}><span>{fact.label}</span><b>{fact.value}</b><small>{fact.certainty}</small></button>)}</section>}<div className="full-info-actions"><CopyActionButton target="full-info-copy" label="Copy result" onClick={() => copyDisplayed(value, "full-info-copy")} title={value?.kind === "steinhaus-moser" || value?.kind === "structural-power" || value?.kind === "extended-scale" ? "Copy the canonical construction syntax" : "Copy the result in the current display format"} />{value?.kind !== "steinhaus-moser" && value?.kind !== "structural-power" && value?.kind !== "extended-scale" && <CopyActionButton target="full-info-10m" label="Copy (10M digits)" onClick={() => exportHighPrecision(sourceExpression, "full-info-10m")} disabled={Boolean(exportWorkerRef.current)} title="Recalculate this expression with up to 10,000,000 significant digits, then copy it" />}{data.provenance?.length > 0 && <button aria-expanded={provenanceOpen} onClick={() => setProvenanceOpen((open) => !open)} title="Show the rules, assumptions, evidence, and references behind these facts">Provenance</button>}</div>{provenanceOpen && data.provenance?.length > 0 && <section className="provenance-panel" aria-label="Calculation provenance"><p>CALCULATION PROVENANCE</p>{data.provenance.map((claim) => <article className="provenance-claim" key={claim.claim}><header><button className="provenance-claim-copy" onClick={() => copyText(claim.claim, "Claim")} title={`Copy claim: ${claim.claim}`}>{claim.claim}</button><small>{claim.certainty}</small></header><button className="provenance-rule-copy" onClick={() => copyText(claim.rule, "Rule")} title={`Copy rule: ${claim.rule}`}>{claim.rule}</button><button className="provenance-approach-copy" onClick={() => copyText(claim.approach, "Approach")} title="Copy evidence approach">{claim.approach}</button><div className="provenance-inputs"><span>Inputs</span><button onClick={() => copyText(claim.inputs.base, "Base")} title="Copy base">base {claim.inputs.base}</button><button onClick={() => copyText(claim.inputs.exponent, "Exponent")} title="Copy exponent">exponent {claim.inputs.exponent}</button></div><div className="provenance-sources">{claim.sources.map((source) => <a key={source.id} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</div></article>)}</section>}</section>;
   const InspectionDetails = ({ value, data, digits, sourceExpression }) => <div className="inspector inspection-details"><div><span>engine</span><b>{data.engine ?? value.engineLabel ?? "placeholder"}</b></div><div><span>representation</span><b>{data.representation ?? "native"}</b></div><div><span>precision</span><b>{data.precision ?? `${precisionLabel} digits`}</b></div><div><span>status</span><b>{data.precisionLost ? "magnitude-only" : data.exactness ?? "approximate"}</b></div>{data.canonical && <div className="structural-detail"><span>canonical form</span><b>{data.canonical}</b><small>{data.derivation}</small></div>}{value.exactInteger && <div><span>integer</span><b>exact</b></div>}{primalityLabel(value) && <div><span>primality</span><b>{primalityLabel(value)}{value.primality?.method && <small> · {value.primality.method}</small>}</b></div>}{digits?.value && <div className="digit-count"><span>base-{base} digits</span><b>{formatDigitCountForInspector(digits, { groupDigits })}</b><small>{digits.certainty}</small></div>}{data.facts?.length > 0 && <section className="magnitude-dossier" aria-label="Magnitude dossier"><p>MAGNITUDE DOSSIER</p>{data.facts.map((fact) => <div className="magnitude-fact" key={fact.id}><span>{fact.label}</span><b>{fact.value}</b><small>{fact.certainty}</small></div>)}</section>}<div className="inspector-actions"><button onClick={() => copyDisplayed(value)} title={value?.kind === "steinhaus-moser" || value?.kind === "structural-power" ? "Copy the canonical construction syntax" : "Copy the result in the current display format"}>Copy</button>{value?.kind !== "steinhaus-moser" && value?.kind !== "structural-power" && <button onClick={() => exportHighPrecision(sourceExpression)} disabled={Boolean(exportWorkerRef.current)} title="Recalculate this expression with up to 10,000,000 significant digits, then copy it">Copy (10M digits)</button>}{data.provenance?.length > 0 && <button aria-expanded={provenanceOpen} onClick={() => setProvenanceOpen((open) => !open)} title="Show the rules, assumptions, evidence, and references behind these facts">Provenance</button>}</div>{provenanceOpen && data.provenance?.length > 0 && <section className="provenance-panel" aria-label="Calculation provenance"><p>CALCULATION PROVENANCE</p>{data.provenance.map((claim) => <article className="provenance-claim" key={claim.claim}><header><b>{claim.claim}</b><small>{claim.certainty}</small></header><span>{claim.rule}</span><p>{claim.approach}</p><small>Inputs: base {claim.inputs.base}; exponent {claim.inputs.exponent}</small><div className="provenance-sources">{claim.sources.map((source) => <a key={source.id} href={source.url} target="_blank" rel="noreferrer">{source.title}</a>)}</div></article>)}</section>}</div>;
   const HistoryExpression = ({ item, queued = false }) => <p className="history-expression selectable-text" aria-label={`${queued ? "Queued " : ""}History expression: ${item.expression}`}>{item.expression}{(item.usesSequencePosition || item.expression.includes("@n")) && <span className="history-position-badge" aria-label={`At this History position, @n equals ${item.ordinal}`}>n = {item.ordinal}</span>}</p>;
   const HistoryRow = ({ row }) => {
@@ -1408,7 +1422,7 @@ export function App() {
         {inspectorOpen && previewValue && <InspectorSummary data={inspection} subject={{ value: previewValue, data: inspection, digits: digitCount, sourceExpression: expression }} />}
         <div className="result-meta">{!previewValue ? <span>{workspaceHydrated ? "calculation queued" : "restoring saved workspace"}</span> : preview.steinhaus ? <><span>form <b className="selectable-text">{preview.canonical}</b></span><span>symbolic exact</span><span>{previewValue.engineLabel}</span></> : preview.structuralPower ? <><span>form <b className="selectable-text">{preview.canonical}</b></span><span>symbolic exact</span><span>{inspection.facts?.find((fact) => fact.id === "decimal-digit-order")?.value ? `digit-count order ${inspection.facts.find((fact) => fact.id === "decimal-digit-order").value}` : "exact power structure"}</span></> : <><span>sign <b className="selectable-text">{preview.sign || "+"}</b></span><span>exponent <b className="selectable-text">{preview.exponent || "0"}</b></span><span>{previewValue.engineLabel ?? "placeholder engine"}</span>{primalityLabel(previewValue) && <span className={`primality-meta ${previewValue.primality.kind}`} title={previewValue.primality.method}>{primalityLabel(previewValue)}</span>}</>}{decimalDigitSummary && <span>{decimalDigitSummary.label} <b className="selectable-text">{decimalDigitSummary.value}</b></span>}{previewValue && <span>click result to inspect</span>}</div>
         {exportStatus && <span className="export-status" role="status">{exportStatus}{exportWorkerRef.current && <button onClick={cancelHighPrecisionExport}>Cancel</button>}</span>}
-        <span className="sr-only" role="status" aria-live="polite">{expressionError || toast || exportStatus}</span>
+        <span className="sr-only" role="status" aria-live="polite">{copiedTarget ? "Copied to clipboard" : expressionError || toast || exportStatus}</span>
       </section>
       <section className="control-strip" aria-label="Display controls"><div className="control"><label>DISPLAY BASE</label><div className="segmented">{[10, 2, 16].map((item) => <button key={item} onClick={() => setBase(item)} className={base === item ? "selected" : ""}>{item === 10 ? "Decimal" : item === 2 ? "Binary" : "Hex"}</button>)}</div></div><div className="control precision"><label>DISPLAY PRECISION <strong>{precisionLabel} places</strong></label><input aria-label="Display precision" title="Logarithmic scale from 0 to 10,000 fractional places" type="range" min="0" max={precisionSliderSteps} step="1" value={precisionToSlider(precision)} onChange={(event) => setPrecision(sliderToPrecision(Number(event.target.value)))} /><div><span>0</span><span>10,000</span></div></div><div className="control notation"><div className="control-label-row"><label>NOTATION</label><button className={`grouping-toggle ${groupDigits ? "selected" : ""}`} aria-label="Group expanded decimal digits" aria-pressed={groupDigits} title="Group expanded decimal digits" onClick={() => setGroupDigits((enabled) => !enabled)}>,</button></div><select value={notation} onChange={(event) => setNotation(event.target.value)}><option value="auto">Auto</option><option value="decimal">Decimal</option><option value="scientific">Scientific</option><option value="engineering">Engineering</option><option value="expanded">Expanded</option></select></div></section>
       <section className={`desk ${historyDockOpen ? "history-dock-open" : "history-dock-closed"} ${historyDrawerOpen ? "history-drawer-open" : ""}`}>
@@ -1431,7 +1445,7 @@ export function App() {
               <select className="mode-select" aria-label="Input mode" value={activeMode} onChange={(event) => setActiveMode(event.target.value)}>{paletteModes.map((mode) => <option key={mode}>{mode}</option>)}</select>
             </div>
           </div>
-          <div className="keypad" onPointerDownCapture={(event) => { palettePointerTypeRef.current = event.pointerType; }} onPointerCancel={() => { palettePointerTypeRef.current = ""; }}>{paletteKeys.flat().map((key, index) => <button key={`${key || "future"}-${index}`} aria-hidden={key === ""} tabIndex={key === "" ? -1 : undefined} disabled={key === ""} aria-label={paletteHelp[key] ?? keyLabels[key] ?? `Insert ${key}`} title={paletteHelp[key]} className={paletteKeyClass(key)} onClick={(event) => appendKey(key, event)}>{key}</button>)}</div>
+          <div className="keypad" onPointerDownCapture={(event) => { palettePointerTypeRef.current = event.pointerType; }} onPointerCancel={() => { palettePointerTypeRef.current = ""; }}>{paletteKeys.flat().map((key, index) => <button key={`${key || "future"}-${index}`} aria-hidden={key === ""} tabIndex={key === "" ? -1 : undefined} disabled={key === ""} aria-label={paletteHelp[key] ?? keyLabels[key] ?? `Insert ${key}`} title={paletteHelp[key] ?? keyLabels[key]} className={paletteKeyClass(key)} onClick={(event) => appendKey(key, event)}>{key}</button>)}</div>
           <div className="shortcut-row"><span>Enter <b>save</b></span><span>Esc <b>clear</b></span><span>result click <b>inspect</b></span></div>
         </section>
         <div className="trail-panel" aria-hidden={narrowWorkbench ? !historyDrawerOpen : !historyDockOpen}>
