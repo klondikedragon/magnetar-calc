@@ -7,6 +7,7 @@ test("function catalog ids remain unique and stable", () => {
   assert.equal(new Set(ids).size, ids.length);
   assert.ok(ids.includes("sequence-fibonacci"));
   assert.ok(ids.includes("sequence-recaman"));
+  assert.ok(ids.includes("sequence-immortal-kangaroo"));
   assert.ok(ids.includes("sequence-stern"));
   assert.ok(ids.includes("hyperoperation-knuth-double"));
 });

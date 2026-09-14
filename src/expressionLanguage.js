@@ -40,6 +40,7 @@ export const expressionImplementations = [
   ["sequence-harmonic", { calls: ["harmonic"], kind: "sequence" }],
   ["sequence-jacobsthal", { calls: ["jacobsthal"], kind: "sequence" }],
   ["sequence-yellowstone", { calls: ["yellowstone"], kind: "sequence" }],
+  ["sequence-immortal-kangaroo", { calls: ["kangaroo"], kind: "sequence" }],
   ["sequence-recaman", { calls: ["recaman"], kind: "sequence" }],
   ["sequence-stern", { calls: ["stern"], kind: "sequence" }],
   ["combinatorics-stirling-second", { calls: ["stirling2"], kind: "sequence" }],

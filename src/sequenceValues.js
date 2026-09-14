@@ -1,6 +1,7 @@
 import { recamanTerm } from "./recaman.js";
 import { sternTerm } from "./stern.js";
 import { yellowstoneTerm } from "./yellowstone.js";
+import { kangarooPolicy, kangarooTerm } from "./kangaroo.js";
 
 export const sequenceValuePolicy = Object.freeze({
   maximumCachedIndex: 2_000,
@@ -167,6 +168,7 @@ export function sequenceValue(name, n, k = null) {
     : name === "primepi" ? sequenceValuePolicy.maximumPrimeCountInput
       : name === "stern" ? 1_000_000
         : name === "yellowstone" ? 10_000
+          : name === "kangaroo" ? kangarooPolicy.maximumVerifiedTerm
           : sequenceValuePolicy.maximumCachedIndex;
   if (n > maximum) throw new Error(`${name} supports n up to ${maximum.toLocaleString()}`);
   if (name === "fib") return integer(fibonacciPair(n)[0]);
@@ -178,6 +180,7 @@ export function sequenceValue(name, n, k = null) {
   if (name === "bell") return integer(bellValue(n));
   if (name === "harmonic") return harmonicValue(n);
   if (name === "yellowstone") return integer(BigInt(yellowstoneTerm(n)));
+  if (name === "kangaroo") return integer(BigInt(kangarooTerm(n)));
   if (name === "recaman") return integer(BigInt(recamanTerm(n)));
   if (name === "stern") return integer(BigInt(sternTerm(n)));
   if (name === "binomial") return integer(binomialValue(n, k));

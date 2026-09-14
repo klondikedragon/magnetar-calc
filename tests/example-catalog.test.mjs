@@ -7,7 +7,7 @@ import { validateNotebook } from "../src/notebook.js";
 test("published examples have stable identities, references, valid notebooks, and fixtures", () => {
   assert.equal(validatePublishedExamples(), true);
   assert.equal(new Set(exampleCatalog.map((entry) => entry.id)).size, exampleCatalog.length);
-  assert.deepEqual(publishedExamples.map((entry) => entry.id), ["history.fibonacci-continuation", "magnitude.power-tower-25", "sequences.yellowstone-permutation", "sequences.recaman-walk", "sequences.stern-diatomic", "sequences.lucas-companion", "sequences.pell-silver-ratio", "sequences.tribonacci", "sequences.padovan-plastic"]);
+  assert.deepEqual(publishedExamples.map((entry) => entry.id), ["history.fibonacci-continuation", "magnitude.power-tower-25", "sequences.yellowstone-permutation", "sequences.immortal-kangaroo", "sequences.recaman-walk", "sequences.stern-diatomic", "sequences.lucas-companion", "sequences.pell-silver-ratio", "sequences.tribonacci", "sequences.padovan-plastic"]);
 });
 
 test("Yellowstone fixture uses the next History position and has the OEIS prefix", () => {
@@ -63,10 +63,14 @@ test("catalog categories use mathematical names and primary videos are searchabl
   const yellowstone = exampleCatalog.find((entry) => entry.id === "sequences.yellowstone-permutation");
   assert.equal(yellowstone.video.title, "The Yellowstone Permutation — Numberphile");
   assert.ok(filterExampleCatalog("yellowstone permutation numberphile").includes(yellowstone));
+  const kangaroo = exampleCatalog.find((entry) => entry.id === "sequences.immortal-kangaroo");
+  assert.equal(kangaroo.video.title, "The Immortal Kangaroo Sequence — Numberphile");
+  assert.ok(filterExampleCatalog('kangaroo "infinite path" numberphile').includes(kangaroo));
 });
 
 test("direct sequence examples load a graph-ready 100-term prefix", () => {
   const cases = [
+    ["sequences.immortal-kangaroo", [20, 22, 46, 107, 178, 260]],
     ["sequences.recaman-walk", [0, 1, 3, 6, 2, 7]],
     ["sequences.stern-diatomic", [0, 1, 1, 2, 1, 3]],
   ];
@@ -83,7 +87,7 @@ test("direct sequence examples load a graph-ready 100-term prefix", () => {
 
 test("example search includes keywords and reference URLs but excludes drafts", () => {
   assert.deepEqual(parseExampleSearch('fibonacci "relative history"'), ["fibonacci", "relative history"]);
-  assert.deepEqual(filterExampleCatalog("oeis").map((entry) => entry.id), ["history.fibonacci-continuation", "sequences.yellowstone-permutation", "sequences.recaman-walk", "sequences.stern-diatomic", "sequences.lucas-companion", "sequences.pell-silver-ratio", "sequences.tribonacci", "sequences.padovan-plastic"]);
+  assert.deepEqual(filterExampleCatalog("oeis").map((entry) => entry.id), ["history.fibonacci-continuation", "sequences.yellowstone-permutation", "sequences.immortal-kangaroo", "sequences.recaman-walk", "sequences.stern-diatomic", "sequences.lucas-companion", "sequences.pell-silver-ratio", "sequences.tribonacci", "sequences.padovan-plastic"]);
   assert.equal(filterExampleCatalog("basement").length, 0);
 });
 

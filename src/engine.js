@@ -189,7 +189,7 @@ function naturalArgument(value, label, maximum = 10000) {
 }
 
 function bigIntegerSequence(name, args, Ctor) {
-  const n = naturalArgument(args[0], name, name === "prime" || name === "recaman" ? 100000 : name === "stern" ? 1000000 : name === "yellowstone" ? 10000 : name === "harmonic" ? 10000 : 2000);
+  const n = naturalArgument(args[0], name, name === "prime" || name === "recaman" ? 100000 : name === "stern" ? 1000000 : name === "kangaroo" ? 20000 : name === "yellowstone" ? 10000 : name === "harmonic" ? 10000 : 2000);
   const asCtor = (value) => new Ctor(value.toString());
   const k = name === "binomial" || name === "stirling2" ? naturalArgument(args[1], name, n) : null;
   const value = sequenceValue(name, n, k);
@@ -281,7 +281,7 @@ function evaluateBreakLegacy(expression, references = new Map(), Ctor = BreakDec
       if (fn) return args[0][fn]();
       if (token.toLowerCase() === "min") return args.reduce((lowest, value) => value.lt(lowest) ? value : lowest);
       if (token.toLowerCase() === "max") return args.reduce((highest, value) => value.gt(highest) ? value : highest);
-      if (["fib", "lucas", "prime", "primepi", "partition", "catalan", "bell", "triangular", "harmonic", "jacobsthal", "yellowstone", "recaman", "stern", "stirling2", "binomial"].includes(token.toLowerCase())) return bigIntegerSequence(token.toLowerCase(), args, Ctor);
+      if (["fib", "lucas", "prime", "primepi", "partition", "catalan", "bell", "triangular", "harmonic", "jacobsthal", "yellowstone", "kangaroo", "recaman", "stern", "stirling2", "binomial"].includes(token.toLowerCase())) return bigIntegerSequence(token.toLowerCase(), args, Ctor);
       if (/^fgh[1-3]$/.test(token.toLowerCase())) return wainerFinite(Number(token.at(-1)), args[0], Ctor);
       throw new Error("unknown function");
     }

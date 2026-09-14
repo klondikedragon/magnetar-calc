@@ -179,11 +179,12 @@ function exactSquareRoot(value) {
 }
 
 function sequence(implementationId, args) {
-  const n = natural(args[0], implementationId === "sequence-nth-prime" || implementationId === "sequence-recaman" ? 100_000 : implementationId === "sequence-stern" ? 1_000_000 : implementationId === "sequence-yellowstone" ? 10_000 : 2_000);
+  const n = natural(args[0], implementationId === "sequence-nth-prime" || implementationId === "sequence-recaman" ? 100_000 : implementationId === "sequence-stern" ? 1_000_000 : implementationId === "sequence-immortal-kangaroo" ? 20_000 : implementationId === "sequence-yellowstone" ? 10_000 : 2_000);
   const names = {
     "sequence-fibonacci": "fib", "sequence-lucas": "lucas", "sequence-jacobsthal": "jacobsthal",
     "sequence-triangular": "triangular", "sequence-catalan": "catalan", "sequence-partition": "partition",
     "sequence-bell": "bell", "sequence-harmonic": "harmonic", "sequence-yellowstone": "yellowstone",
+    "sequence-immortal-kangaroo": "kangaroo",
     "sequence-recaman": "recaman", "sequence-stern": "stern", "sequence-nth-prime": "prime",
     "sequence-prime-count": "primepi", "combinatorics-binomial": "binomial",
     "combinatorics-stirling-second": "stirling2",

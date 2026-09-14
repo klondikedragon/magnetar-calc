@@ -39,11 +39,12 @@ const exampleSequenceCases = [
   ["recaman", "recaman"],
   ["stern", "stern"],
   ["yellowstone", "yellowstone"],
+  ["kangaroo", "kangaroo"],
 ].flatMap(([id, operation]) => Array.from({ length: 100 }, (_, index) => ({
   id: `${id}-${index}`,
   kind: "exact",
   operation,
-  arguments: [String(id === "fibonacci" ? index + 1 : index)],
+  arguments: [String(id === "fibonacci" || id === "kangaroo" ? index + 1 : index)],
 })));
 
 function runOracle(cases) {
@@ -94,8 +95,8 @@ test("matches independent 100-term example sequence generators", () => {
     values.forEach((value, index) => assert.equal(value.exactInteger, oracle[`${name}-${index}`], `${name}-${index}`));
   }
   for (let index = 0; index < 100; index += 1) {
-    for (const name of ["recaman", "stern", "yellowstone"]) {
-      const argument = name === "yellowstone" ? index + 1 : index;
+    for (const name of ["recaman", "stern", "yellowstone", "kangaroo"]) {
+      const argument = name === "yellowstone" || name === "kangaroo" ? index + 1 : index;
       const value = evaluateAutomatically(`${name}(${argument})`);
       assert.equal(value.exactInteger, oracle[`${name}-${index}`], `${name}-${index}`);
     }

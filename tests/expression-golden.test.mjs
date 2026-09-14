@@ -46,6 +46,7 @@ const successfulExpressions = [
   ["harmonic", "harmonic(3)", { prefix: "1.8333333333333333333333333333333333333333333333333" }],
   ["Jacobsthal", "jacobsthal(10)", "341"],
   ["Recamán", "recaman(24)", "42"],
+  ["Immortal kangaroo", "kangaroo(10)", "401"],
   ["Stern diatomic", "stern(11)", "5"],
   ["Stirling second kind", "stirling2(5, 2)", "15"],
   ["binomial", "binomial(10, 3)", "120"],

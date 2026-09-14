@@ -39,6 +39,19 @@ def exact(operation, arguments):
             used.add(candidate)
             candidate = 1
         return sequence[index]
+    if operation == "kangaroo":
+        term = 20
+        for _ in range(1, values[0]):
+            last = term % 10
+            children = [
+                term + 10 * last + first
+                for first in range(1, 10)
+                if str(term + 10 * last + first)[0] == str(first)
+            ]
+            if len(children) != 1:
+                raise ValueError("kangaroo oracle reached a branch or dead end")
+            term = children[0]
+        return term
     if operation == "recaman":
         values_seen = {0}
         value = 0

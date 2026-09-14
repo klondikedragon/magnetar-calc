@@ -46,6 +46,7 @@ const tribonacciNotebook = recurrenceNotebook([0, 0, 1], "@history(-1) + @histor
 const padovanNotebook = recurrenceNotebook([1, 1, 1], "@history(-2) + @history(-3)");
 const recamanNotebook = directSequenceNotebook("recaman(@n - 1)");
 const sternNotebook = directSequenceNotebook("stern(@n - 1)");
+const kangarooNotebook = directSequenceNotebook("kangaroo(@n)");
 
 /**
  * Examples are source-backed notebooks rather than cached answers. Imports
@@ -117,6 +118,30 @@ export const exampleCatalog = [
       { label: "Numberphile: The Yellowstone Permutation", url: "https://www.youtube.com/watch?v=DUaqiM1bGX4" },
     ],
     video: { title: "The Yellowstone Permutation — Numberphile", url: "https://www.youtube.com/watch?v=DUaqiM1bGX4" },
+  },
+  {
+    id: "sequences.immortal-kangaroo",
+    published: true,
+    category: "Sequences",
+    name: "The immortal kangaroo sequence",
+    description: "A digit-driven walk whose locally forced early path belongs to a lexicographically earliest path that continues forever.",
+    keywords: ["immortal kangaroo", "kangaroo", "comma sequence", "comma child", "numberphile", "neil sloane", "a367620", "infinite path", "konig infinity lemma"],
+    notebook: kangarooNotebook,
+    verification: { fixture: "examples.immortal-kangaroo", status: "verified" },
+    details: {
+      overview: [
+        "For consecutive terms k and k′, form the two-digit number from the last digit of k and the first digit of k′. The next term must satisfy k′ − k = that two-digit number. Starting at 20 gives 20, 22, 46, 107, 178, ….",
+        "Some values have two comma-children, turning the possible continuations into a branching tree. The immortal kangaroo is the lexicographically earliest infinite path through that tree. Its existence follows from König’s infinity lemma, but the full path is not known by an effective formula.",
+        "The first choice point on this path occurs only after term 412,987,860. The 100 terms shown here are therefore forced by the local rule, and the calculator deliberately limits kangaroo(n) to the 20,000-term prefix published by OEIS.",
+      ],
+      steps: ["Compare each jump with the digits straddling its comma.", "Plot the first hundred terms as the kangaroo’s changing jump pattern.", "Contrast the computable forced prefix with the global infinite-path definition."],
+    },
+    references: [
+      { label: "OEIS A367620: lexicographically earliest infinite comma-child path", url: "https://oeis.org/A367620" },
+      { label: "Angelini et al.: The Comma Sequence", url: "https://arxiv.org/abs/2401.14346" },
+      { label: "Numberphile: The Immortal Kangaroo Sequence", url: "https://www.numberphile.com/videos/the-immortal-kangaroo-sequence" },
+    ],
+    video: { title: "The Immortal Kangaroo Sequence — Numberphile", url: "https://www.youtube.com/watch?v=A020pGO5MBs" },
   },
   {
     id: "sequences.recaman-walk",
