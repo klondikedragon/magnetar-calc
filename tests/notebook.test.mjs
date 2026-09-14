@@ -17,6 +17,22 @@ test("exports an expression-first notebook with optional cached answers and view
   assert.deepEqual(validateNotebook(notebook), { expression: "123", history: [{ id: 4, expression: "123" }], nextId: 5, view });
 });
 
+test("keeps device appearance out of notebook view exports", () => {
+  const notebook = createNotebook({
+    expression: "1",
+    previewValue: null,
+    includeActiveAnswer: false,
+    history: [],
+    nextId: 1,
+    view: { ...view, appearance: "dark", theme: "dark" },
+    includeView: true,
+    includeAnswers: false,
+  });
+  assert.equal(notebook.viewSettings.appearance, undefined);
+  assert.equal(notebook.viewSettings.theme, undefined);
+  assert.equal(notebook.viewSettings.base, 10);
+});
+
 test("imports preserve Fibonacci order and relative expressions while discarding outputs", () => {
   const fibonacci = validateNotebook(exampleWorkbenches.fibonacci);
   assert.equal(fibonacci.history[0].id, 5);

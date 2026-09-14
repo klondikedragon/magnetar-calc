@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChartNoAxesCombined, Check, CircleAlert, Copy, ExternalLink, FolderOpen, History, Info, PlaySquare, RotateCcw, Save, X } from "lucide-react";
+import { BookOpen, ChartNoAxesCombined, Check, CircleAlert, Copy, ExternalLink, FolderOpen, History, Info, PlaySquare, RotateCcw, Save, Settings, X } from "lucide-react";
 import { TableVirtuoso, Virtuoso } from "react-virtuoso";
 import { registerSW } from "virtual:pwa-register";
 import { deserializeValue, digitCountAutomatically, evaluateWithAnalysis, exportPrecision, formatAutomatically, formatDigitCountForInspector, formatForHighPrecisionExport, inspectAutomatically, serializeValue } from "./engine";
@@ -17,20 +17,21 @@ import { createDefaultWorkspace } from "./seedWorkspace";
 import { useDismissiblePopover } from "./useDismissiblePopover";
 import { resolveActionPointerType, shouldRestoreEditorFocus } from "./interactionModality";
 import { prepareWorkspaceHydration } from "./workspaceHydration";
+import { appearancePreferences, normalizeAppearancePreference, resolveAppearance } from "./appearance";
+import { normalizePaletteMode, paletteModes } from "./paletteModes";
 
 const HistoryChartDialog = lazy(() => import("./HistoryChartDialog"));
 
 const initialWorkspace = createDefaultWorkspace();
 const appVersion = typeof __MAGNETAR_VERSION__ === "string" ? __MAGNETAR_VERSION__ : "vdev-local";
 
-const modes = ["Calculator", "Scientific", "Trigonometry", "Number theory", "Sequences", "Ordinal / hierarchy", "Programmer"];
 const keys = [
-  ["AC", "⌫", "(·)", "Ans", "f(x)", "="],
+  ["AC", "⌫", "(·)", "Ans", "f(x)", ""],
   ["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ"],
   ["sin", "cos", "tan", "ln", "log", "!"],
   ["π", "e", "τ", "abs", "mod", "%"],
-  ["7", "8", "9", "÷", "×", "−"],
-  ["4", "5", "6", "+", "(", ")"],
+  ["7", "8", "9", "(", "÷", "−"],
+  ["4", "5", "6", ")", "×", "+"],
   ["1", "2", "3", ".", "0", "="],
 ];
 const numberTheoryKeys = keys.map((row, index) => index === 3 ? ["π", "e", "τ", "↑", "↑↑", "mod"] : row);
@@ -41,6 +42,7 @@ const sequenceHelp = {
 };
 const ordinalHelp = { "F₁(n)": "Wainer fast-growing hierarchy: F1(n)=2n.", "F₂(n)": "Wainer fast-growing hierarchy: F2(n)=n·2ⁿ.", "F₃(n)": "Wainer fast-growing hierarchy: iterate F2, n times, starting at n.", "F₄(n)": "Wainer fast-growing hierarchy — shown structurally until the ordinal engine is available.", "F₅(n)": "Wainer fast-growing hierarchy — shown structurally until the ordinal engine is available.", "Fω(n)": "Diagonal Wainer function Fω(n)=Fn(n); reserved for the ordinal engine.", ω: "First infinite ordinal; ordinal notation support is forthcoming.", "ω²": "Ordinal omega squared; ordinal notation support is forthcoming.", "ω^ω": "Ordinal omega to omega; ordinal notation support is forthcoming.", "ε₀": "Epsilon nought; ordinal notation support is forthcoming.", α: "Ordinal parameter; ordinal notation support is forthcoming.", "Ordinal…": "Reserved for ordinal notation tools." };
 const storageKey = "elephant-calc/workbench/v1";
+const appearanceStorageKey = "magnetar-calc/appearance/v1";
 const savePickerCancelled = Symbol("save-picker-cancelled");
 const maximumDisplayPrecision = 10_000;
 const maximumQueuedHistorySaves = 10_000;
@@ -48,6 +50,18 @@ const precisionSliderSteps = 1000;
 const precisionToSlider = (digits) => digits <= 0 ? 0 : Math.round((Math.log10(Math.min(digits, maximumDisplayPrecision) + 1) / Math.log10(maximumDisplayPrecision + 1)) * precisionSliderSteps);
 const sliderToPrecision = (position) => position <= 0 ? 0 : Math.round((10 ** ((position / precisionSliderSteps) * Math.log10(maximumDisplayPrecision + 1))) - 1);
 const keyLabels = { AC: "Clear expression", "⌫": "Backspace", "(·)": "Wrap selected text, or the whole expression, in parentheses", Ans: "Insert latest History result — @history(-1)", "f(x)": "Browse and insert a function", "=": "Calculate and save to History", "x²": "Square", "xʸ": "Raise to a power", "√x": "Square root", "ⁿ√x": "Nth root", "10ˣ": "Ten to a power", "eˣ": "Euler's number to a power", "π": "Insert pi", "τ": "Insert tau", "↑": "Insert Knuth up arrow", "↑↑": "Insert Knuth double up arrow", "−": "Subtract", "×": "Multiply", "÷": "Divide", "@n": "Insert the next sequence position", min: "Insert minimum function", max: "Insert maximum function" };
+const functionKeys = new Set(["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ", "sin", "cos", "tan", "ln", "log", "!", "π", "e", "τ", "φ", "abs", "mod", "%", "↑", "↑↑", "@n", "min", "max", "Fₙ", "Lₙ", "pₙ", "π(n)", "P(n)", "Cₙ", "Bₙ", "Tₙ", "Hₙ", "Jₙ", "Yₙ", "S(n,k)", "nCr", "F₁(n)", "F₂(n)", "F₃(n)", "F₄(n)", "F₅(n)"]);
+const operatorKeys = new Set(["÷", "×", "−", "+"]);
+
+function paletteKeyClass(key) {
+  if (!key) return "key placeholder";
+  if (key === "=") return "key equal";
+  if (key === "⌫") return "key utility backspace-key";
+  if (key === "AC") return "key utility";
+  if (operatorKeys.has(key)) return "key operator";
+  if (["(", ")"].includes(key)) return "key grouping";
+  return functionKeys.has(key) ? "key function" : "key";
+}
 
 function polygonPoints(sides) {
   return Array.from({ length: sides }, (_, index) => {
@@ -97,7 +111,12 @@ export function App() {
   const [precision, setPrecision] = useState(48);
   const [notation, setNotation] = useState("auto");
   const [groupDigits, setGroupDigits] = useState(true);
-  const [activeMode, setActiveMode] = useState("Calculator");
+  const [activeMode, setActiveMode] = useState("Scientific");
+  const [appearance, setAppearance] = useState(() => {
+    try { return normalizeAppearancePreference(window.localStorage.getItem(appearanceStorageKey)); }
+    catch { return "system"; }
+  });
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [history, setHistory] = useState([]);
   const [nextId, setNextId] = useState(1);
   const [memory, setMemory] = useState(null);
@@ -178,6 +197,8 @@ export function App() {
   const pwaUpdateCoordinatorRef = useRef(null);
   const brandInfoRef = useRef(null);
   const brandButtonRef = useRef(null);
+  const settingsPopoverRef = useRef(null);
+  const settingsButtonRef = useRef(null);
   const palettePointerTypeRef = useRef("");
   const brandInfoVisible = brandInfoOpen || brandInfoHovered;
   const dismissBrandInfo = useCallback(() => {
@@ -185,6 +206,24 @@ export function App() {
     setBrandInfoHovered(false);
   }, []);
   useDismissiblePopover(brandInfoVisible, dismissBrandInfo, brandInfoRef, brandButtonRef);
+  const dismissSettings = useCallback(() => setSettingsOpen(false), []);
+  useDismissiblePopover(settingsOpen, dismissSettings, settingsPopoverRef, settingsButtonRef);
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyAppearance = () => {
+      document.documentElement.dataset.theme = resolveAppearance(appearance, media.matches);
+      document.documentElement.style.colorScheme = resolveAppearance(appearance, media.matches);
+    };
+    applyAppearance();
+    try { window.localStorage.setItem(appearanceStorageKey, appearance); } catch { /* Device preference is best-effort. */ }
+    if (appearance !== "system") return undefined;
+    if (media.addEventListener) media.addEventListener("change", applyAppearance);
+    else media.addListener(applyAppearance);
+    return () => {
+      if (media.removeEventListener) media.removeEventListener("change", applyAppearance);
+      else media.removeListener(applyAppearance);
+    };
+  }, [appearance]);
   if (!workspacePersistenceRef.current) {
     workspacePersistenceRef.current = createCoalescedPersistence({
       write: (snapshot) => window.localStorage.setItem(storageKey, snapshot),
@@ -206,7 +245,7 @@ export function App() {
       if (Number.isInteger(view.precision) && view.precision >= 0 && view.precision <= maximumDisplayPrecision) setPrecision(view.precision);
       if (["auto", "decimal", "scientific", "engineering", "expanded"].includes(view.notation)) setNotation(view.notation);
       if (typeof view.groupDigits === "boolean") setGroupDigits(view.groupDigits);
-      if (modes.includes(view.activeMode)) setActiveMode(view.activeMode);
+      setActiveMode(normalizePaletteMode(view.activeMode));
       if (["compact", "detailed", "grid"].includes(view.functionView)) setFunctionView(view.functionView);
       if (["compact", "detailed", "grid"].includes(view.exampleView)) setExampleView(view.exampleView);
       if (["category", "name", "description"].includes(view.exampleSort)) setExampleSort(view.exampleSort);
@@ -352,7 +391,7 @@ export function App() {
     };
   }, []);
   const precisionLabel = useMemo(() => precision.toLocaleString(), [precision]);
-  const paletteKeys = activeMode === "Number theory" ? numberTheoryKeys : activeMode === "Sequences" ? sequenceKeys : activeMode === "Programmer" ? keys : activeMode === "Trigonometry" ? keys : activeMode === "Scientific" ? keys : activeMode === "Ordinal / hierarchy" ? ordinalKeys : keys;
+  const paletteKeys = activeMode === "Number theory" ? numberTheoryKeys : activeMode === "Sequences" ? sequenceKeys : activeMode === "Ordinal / hierarchy" ? ordinalKeys : keys;
   const paletteHelp = activeMode === "Sequences" ? sequenceHelp : activeMode === "Ordinal / hierarchy" ? ordinalHelp : {};
   const renderResult = useMemo(() => createValuePresentationCache((value) => formatAutomatically(value, { base, precision, notation, groupDigits })), [base, precision, notation, groupDigits]);
   const preview = useMemo(() => previewValue
@@ -1147,7 +1186,7 @@ export function App() {
     if (Number.isInteger(view.precision) && view.precision >= 0 && view.precision <= maximumDisplayPrecision) setPrecision(view.precision);
     if (["auto", "decimal", "scientific", "engineering", "expanded"].includes(view.notation)) setNotation(view.notation);
     if (typeof view.groupDigits === "boolean") setGroupDigits(view.groupDigits);
-    if (modes.includes(view.activeMode)) setActiveMode(view.activeMode);
+    setActiveMode(normalizePaletteMode(view.activeMode));
     if (["compact", "detailed", "grid"].includes(view.functionView)) setFunctionView(view.functionView);
     if (["compact", "detailed", "grid"].includes(view.exampleView)) setExampleView(view.exampleView);
     if (["category", "name", "description"].includes(view.exampleSort)) setExampleSort(view.exampleSort);
@@ -1389,10 +1428,10 @@ export function App() {
                 {memoryDisplay && <button className="memory-chip selectable-output" aria-label={resultLabel(memoryDisplay, "Open memory")} title={`${memoryTooltip} · click to inspect memory`} onClick={openMemory}>M {memoryDisplay.sign}{memoryDisplay.significand}{memoryDisplay.exponent && ` × 10^${memoryDisplay.exponent}`}</button>}
                 <button aria-label="Clear memory" onClick={() => setMemory(null)}>MC</button><button aria-label="Add active expression to memory" onClick={addToMemory}>M+</button><button aria-label="Recall memory into expression" onClick={recallMemory}>MR</button>
               </div>
-              <select className="mode-select" aria-label="Input mode" value={activeMode} onChange={(event) => setActiveMode(event.target.value)}>{modes.map((mode) => <option key={mode}>{mode}</option>)}</select>
+              <select className="mode-select" aria-label="Input mode" value={activeMode} onChange={(event) => setActiveMode(event.target.value)}>{paletteModes.map((mode) => <option key={mode}>{mode}</option>)}</select>
             </div>
           </div>
-          <div className="keypad" onPointerDownCapture={(event) => { palettePointerTypeRef.current = event.pointerType; }} onPointerCancel={() => { palettePointerTypeRef.current = ""; }}>{paletteKeys.flat().map((key, index) => <button key={`${key || "future"}-${index}`} aria-hidden={key === ""} tabIndex={key === "" ? -1 : undefined} disabled={key === ""} aria-label={paletteHelp[key] ?? keyLabels[key] ?? `Insert ${key}`} title={paletteHelp[key]} className={key === "" ? "key placeholder" : key === "=" ? "key equal" : ["AC", "⌫"].includes(key) ? "key utility" : ["x²", "xʸ", "√x", "ⁿ√x", "10ˣ", "eˣ", "sin", "cos", "tan", "ln", "log", "!", "π", "e", "τ", "φ", "abs", "mod", "%", "↑", "↑↑", "@n", "min", "max", "Fₙ", "Lₙ", "pₙ", "π(n)", "P(n)", "Cₙ", "Bₙ", "Tₙ", "Hₙ", "Jₙ", "Yₙ", "S(n,k)", "nCr", "F₁(n)", "F₂(n)", "F₃(n)", "F₄(n)", "F₅(n)"].includes(key) ? "key function" : "key"} onClick={(event) => appendKey(key, event)}>{key}</button>)}</div>
+          <div className="keypad" onPointerDownCapture={(event) => { palettePointerTypeRef.current = event.pointerType; }} onPointerCancel={() => { palettePointerTypeRef.current = ""; }}>{paletteKeys.flat().map((key, index) => <button key={`${key || "future"}-${index}`} aria-hidden={key === ""} tabIndex={key === "" ? -1 : undefined} disabled={key === ""} aria-label={paletteHelp[key] ?? keyLabels[key] ?? `Insert ${key}`} title={paletteHelp[key]} className={paletteKeyClass(key)} onClick={(event) => appendKey(key, event)}>{key}</button>)}</div>
           <div className="shortcut-row"><span>Enter <b>save</b></span><span>Esc <b>clear</b></span><span>result click <b>inspect</b></span></div>
         </section>
         <div className="trail-panel" aria-hidden={narrowWorkbench ? !historyDrawerOpen : !historyDockOpen}>
@@ -1410,6 +1449,10 @@ export function App() {
           </div>
         </div>
         <nav className="sidebar-selector" aria-label="Workbench panels">
+          <div className="settings-control" ref={settingsPopoverRef}>
+            <button ref={settingsButtonRef} type="button" className={settingsOpen ? "selected" : ""} aria-label="Appearance settings" aria-expanded={settingsOpen} aria-controls="appearance-settings" title="Appearance settings" onClick={() => setSettingsOpen((open) => !open)}><Settings aria-hidden="true" /></button>
+            {settingsOpen && <section className="settings-popover" id="appearance-settings" aria-label="Appearance"><strong>Appearance</strong><div role="group" aria-label="Color theme">{appearancePreferences.map((preference) => <button key={preference} type="button" className={appearance === preference ? "selected" : ""} aria-pressed={appearance === preference} onClick={() => setAppearance(preference)}>{preference === "system" ? "System" : preference === "light" ? "Light" : "Dark"}</button>)}</div></section>}
+          </div>
           <button type="button" className={narrowWorkbench ? historyDrawerOpen ? "selected" : "" : historyDockOpen ? "selected" : ""} aria-label={narrowWorkbench ? `${historyDrawerOpen ? "Close" : "Open"} History` : `${historyDockOpen ? "Hide" : "Show"} History`} aria-pressed={narrowWorkbench ? historyDrawerOpen : historyDockOpen} title={narrowWorkbench ? `${historyDrawerOpen ? "Close" : "Open"} History` : `${historyDockOpen ? "Hide" : "Show"} History`} onClick={() => narrowWorkbench ? setHistoryDrawerOpen((open) => !open) : setHistoryDockOpen((open) => !open)}><History aria-hidden="true" /></button>
         </nav>
       </section>

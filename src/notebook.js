@@ -3,6 +3,18 @@ import { formatAutomatically, formatForHighPrecisionExport, inspectAutomatically
 export const notebookSchemaVersion = 1;
 export const maximumNotebookHistoryEntries = 10_000;
 
+const exportedViewKeys = [
+  "base", "precision", "notation", "groupDigits", "activeMode",
+  "functionView", "exampleView", "exampleSort", "exampleSortDirection",
+  "historyDockOpen",
+];
+
+function exportedViewSettings(view) {
+  return Object.fromEntries(exportedViewKeys
+    .filter((key) => Object.hasOwn(view, key))
+    .map((key) => [key, view[key]]));
+}
+
 function exportedAnswer(value, formatOptions, highPrecision = false) {
   const inspection = inspectAutomatically(value, formatOptions);
   return {
@@ -35,7 +47,7 @@ export function createNotebook({ expression, previewValue, includeActiveAnswer, 
     },
     history: history.map(entry),
     nextHistoryId: nextId,
-    ...(includeView ? { viewSettings: { ...view } } : {}),
+    ...(includeView ? { viewSettings: exportedViewSettings(view) } : {}),
   };
 }
 
