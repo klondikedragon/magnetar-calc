@@ -1446,7 +1446,6 @@ export function App() {
             </div>
           </div>
           <div className="keypad" onPointerDownCapture={(event) => { palettePointerTypeRef.current = event.pointerType; }} onPointerCancel={() => { palettePointerTypeRef.current = ""; }}>{paletteKeys.flat().map((key, index) => <button key={`${key || "future"}-${index}`} aria-hidden={key === ""} tabIndex={key === "" ? -1 : undefined} disabled={key === ""} aria-label={paletteHelp[key] ?? keyLabels[key] ?? `Insert ${key}`} title={paletteHelp[key] ?? keyLabels[key]} className={paletteKeyClass(key)} onClick={(event) => appendKey(key, event)}>{key}</button>)}</div>
-          <div className="shortcut-row"><span>Enter <b>save</b></span><span>Esc <b>clear</b></span><span>result click <b>inspect</b></span></div>
         </section>
         <div className="trail-panel" aria-hidden={narrowWorkbench ? !historyDrawerOpen : !historyDockOpen}>
           <div className="panel-heading">
